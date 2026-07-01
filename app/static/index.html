@@ -1,0 +1,3045 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LLM Inference Control Plane</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* ========================================================
+           CUSTOM CSS CLASSES & ANIMATIONS
+           
+           These custom styles supplement Tailwind CSS for:
+           - Spinners (loading indicators across forms)
+           - Tab navigation styling  
+           - Custom scrollbars
+           - Toggle switches (binary feature flags)
+           - Profile cards (governance profile selector)
+           - Compare tabs (multi-model comparison tabs)
+           - Glow animations (telemetry row highlights)
+           - Glass-morphism effects (page shell, panels)
+           ======================================================== */
+        
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        
+        /* ---- BODY & BACKGROUND ---- */
+        body {
+            font-family: 'Inter', sans-serif;
+            background:
+                radial-gradient(circle at top left, rgba(79, 70, 229, 0.12), transparent 28%),
+                radial-gradient(circle at top right, rgba(14, 165, 233, 0.10), transparent 24%),
+                linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+        }
+        
+        /* ---- SPINNER ANIMATIONS ---- */
+        .spinner { border: 2px solid rgba(255,255,255,0.3); border-radius: 50%; border-top-color: #fff; width: 16px; height: 16px; animation: spin 1s ease-in-out infinite; }
+        .spinner-dark { border: 2px solid rgba(0,0,0,0.1); border-radius: 50%; border-top-color: #4f46e5; width: 14px; height: 14px; animation: spin 1s ease-in-out infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        /* ---- TAB BUTTON STYLING ---- */
+        .tab-btn {
+            border: 2px solid transparent;
+            border-radius: 12px;
+            padding: 0.65rem 1.1rem;
+            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
+            background: rgba(255,255,255,0.5);
+            font-weight: 600;
+            position: relative;
+            overflow: hidden;
+        }
+        .tab-btn::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: transparent;
+            transition: background 0.22s ease;
+        }
+        .tab-btn:hover {
+            background: rgba(255,255,255,0.8);
+            transform: translateY(-2px) scale(1.05);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+        }
+        .tab-btn.active {
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.95), rgba(14, 165, 233, 0.95));
+            color: white;
+            font-weight: 700;
+            border-color: rgba(255, 255, 255, 0.4);
+            box-shadow: 0 12px 32px rgba(79, 70, 229, 0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+            transform: translateY(-3px);
+        }
+        
+        /* ---- CUSTOM SCROLLBARS ---- */
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.05); border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 4px; }
+        
+        /* ---- TOGGLE SWITCH (FEATURE FLAGS) ---- */
+        .toggle-checkbox:checked { right: 0; border-color: #4f46e5; }
+        .toggle-checkbox:checked + .toggle-label { background-color: #4f46e5; }
+        .toggle-checkbox { right: 0; z-index: 1; border-color: #e5e7eb; transition: all 0.2s; }
+        .toggle-label { background-color: #e5e7eb; transition: all 0.2s; }
+        
+        /* ---- PROFILE CARD SELECTION ---- */
+        .profile-card { transition: all 0.15s ease; }
+        .profile-card.selected { border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+        .profile-card:not(.selected):hover { border-color: #a5b4fc; }
+        
+        /* ---- COMPARE TABS ---- */
+        .compare-tab { transition: all 0.15s; }
+        .compare-tab.active-ct { background: #4f46e5; color: white; }
+        
+        /* ---- ROW HIGHLIGHT GLOW (TELEMETRY TABLE) ---- */
+        .latest-row-highlight {
+            animation: latestGlow 1.2s ease-in-out infinite alternate;
+        }
+        @keyframes latestGlow {
+            from { background-color: #eef2ff; }
+            to { background-color: #f8fafc; }
+        }
+        
+        /* ---- GLASS-MORPHISM EFFECTS ---- */
+        /* Page shell: header navbar with blur backdrop */
+        .page-shell {
+            background: rgba(255, 255, 255, 0.72);
+            backdrop-filter: blur(16px);
+        }
+        
+        /* Panel cards: main content containers with premium styling */
+        .panel-card {
+            border-radius: 1.25rem;
+            border: 1px solid rgba(226, 232, 240, 0.95);
+            background: rgba(255, 255, 255, 0.92);
+            box-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+            overflow: hidden;
+        }
+        
+        /* Panel card header: subtle gradient background */
+        .panel-card-header {
+            background: linear-gradient(180deg, rgba(248, 250, 252, 0.95), rgba(241, 245, 249, 0.82));
+            border-bottom: 1px solid rgba(226, 232, 240, 0.85);
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-800 flex flex-col text-sm">
+
+    <nav class="page-shell border-b border-indigo-100/50 text-slate-900 shadow-[0_8px_32px_rgba(79,70,229,0.15)] sticky top-0 z-50 bg-gradient-to-r from-white via-blue-50/40 to-white">
+        <div class="max-w-[90rem] mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="grid grid-cols-3 items-center h-16 gap-3">
+                <div class="flex items-center gap-3 justify-self-start">
+                    <div class="bg-gradient-to-br from-indigo-600 via-purple-500 to-cyan-500 p-2 rounded-xl shadow-lg shadow-indigo-300/50 hover:shadow-indigo-400/70 transition-all duration-300 hover:scale-110">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center justify-center text-center gap-0.5 justify-self-center">
+                    <div class="text-xl md:text-2xl lg:text-3xl font-extrabold leading-none tracking-tight bg-gradient-to-r from-slate-900 via-indigo-600 to-cyan-600 bg-clip-text text-transparent">
+                        Compunnel AIOps <span class="text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-cyan-500">Control</span>
+                    </div>
+                    <div class="w-20 h-1 rounded-full bg-gradient-to-r from-indigo-500 via-cyan-500 to-emerald-500 mt-2 shadow-lg shadow-indigo-300/50"></div>
+                    <div id="page-context" class="text-[10px] md:text-xs font-semibold mt-1 bg-gradient-to-r from-indigo-600 via-cyan-500 to-emerald-500 bg-clip-text text-transparent">Unified runtime, observability, and benchmark workflows</div>
+                </div>
+                <div class="flex items-center gap-3 text-xs font-medium justify-self-end">
+                    <span class="flex items-center text-emerald-700 bg-gradient-to-r from-emerald-50 to-teal-50 px-3 py-1.5 rounded-full border border-emerald-300 font-semibold shadow-sm shadow-emerald-100">
+                        <span class="w-2 h-2 bg-gradient-to-r from-emerald-500 to-teal-500 rounded-full mr-2 animate-pulse shadow-lg shadow-emerald-400"></span>
+                        System Online
+                    </span>
+                    <!-- NEW: RBAC Role Selector -->
+                    <div class="flex items-center gap-2">
+                        <label class="text-slate-700 font-semibold bg-gradient-to-r from-indigo-100 to-purple-100 px-2 py-1 rounded-lg">Role:</label>
+                        <select id="user-role-selector" onchange="updateUserRole(this.value)" class="bg-gradient-to-r from-indigo-50 to-purple-50 border-2 border-indigo-300 text-indigo-700 px-3 py-1 rounded-lg text-xs font-semibold hover:border-indigo-500 focus:ring-2 focus:ring-indigo-400 outline-none shadow-sm cursor-pointer">
+                            <option value="viewer">👁️ Viewer</option>
+                            <option value="user">👤 User</option>
+                            <option value="developer">👨‍💻 Developer</option>
+                            <option value="mlops">⚙️ MLOps</option>
+                            <option value="admin">👑 Admin</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+            <div class="pb-3 pt-2">
+                <div class="grid grid-cols-4 gap-2.5 py-2">
+                    <button onclick="switchTab('finops')" id="btn-finops" class="tab-btn active text-xs text-center" style="background: linear-gradient(135deg, rgba(79, 70, 229, 0.95), rgba(14, 165, 233, 0.95)); color: white; box-shadow: 0 12px 32px rgba(79, 70, 229, 0.35);">📊 1. Overview</button>
+                    <button onclick="switchTab('registry')" id="btn-registry" class="tab-btn text-xs text-slate-700 text-center hover:text-slate-900" onmouseover="this.style.background='rgba(59, 130, 246, 0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.5)'">📚 2. Catalog</button>
+                    <button onclick="switchTab('playground')" id="btn-playground" class="tab-btn text-xs text-slate-700 text-center hover:text-slate-900" onmouseover="this.style.background='rgba(168, 85, 247, 0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.5)'">🛡️ 3. Policies</button>
+                    <button onclick="switchTab('benchmarks')" id="btn-benchmarks" class="tab-btn text-xs text-slate-700 text-center hover:text-slate-900" onmouseover="this.style.background='rgba(16, 185, 129, 0.15)'" onmouseout="this.style.background='rgba(255,255,255,0.5)'">⚡ 4. Benchmarks</button>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <main class="flex-grow max-w-[90rem] mx-auto px-4 py-6 w-full">
+
+        <!-- ========================================== -->
+        <!-- TAB 1: OVERVIEW                             -->
+        <!-- ========================================== -->
+        <div id="tab-finops" class="space-y-6 flex flex-col">
+
+            <!-- ALL KPI Cards in SINGLE LINE -->
+            <div class="grid grid-cols-10 gap-2 order-1">
+                <div class="bg-white p-3 border border-slate-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-indigo-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Total Requests</div>
+                    <div class="text-lg font-bold text-slate-900 mt-1" id="total-requests">0</div>
+                </div>
+                <div class="bg-white p-3 border border-slate-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-emerald-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Total Spend</div>
+                    <div class="text-lg font-bold text-emerald-600 mt-1" id="total-cost">$0.000000</div>
+                </div>
+                <div class="bg-white p-3 border border-slate-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-amber-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Avg TTFT</div>
+                    <div class="text-lg font-bold text-amber-600 mt-1" id="avg-ttft">0.0<span class="text-xs text-amber-500 ml-1">ms</span></div>
+                </div>
+                <div class="bg-white p-3 border border-slate-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-blue-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Cache Hit Rate</div>
+                    <div class="text-lg font-bold text-blue-600 mt-1" id="cache-rate">0.0%</div>
+                </div>
+                <div class="bg-white p-3 border border-purple-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-purple-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Agent Calls</div>
+                    <div class="text-lg font-bold text-purple-600 mt-1" id="total-agent-calls">0</div>
+                    <div class="text-[8px] text-slate-400 mt-1">Avg: <span id="avg-calls-per-req">0</span>/req</div>
+                </div>
+                <div class="bg-white p-3 border border-purple-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-rose-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Agent Cost</div>
+                    <div class="text-lg font-bold text-rose-600 mt-1" id="total-agent-cost">$0.000</div>
+                    <div class="text-[8px] text-slate-400 mt-1" id="agent-cost-pct">0% of spend</div>
+                </div>
+                <div class="bg-white p-3 border border-purple-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-violet-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Budget Limits</div>
+                    <div class="text-lg font-bold text-violet-600 mt-1" id="budget-terminated">0</div>
+                    <div class="text-[8px] text-slate-400 mt-1">terminated</div>
+                </div>
+                <div class="bg-white p-3 border border-cyan-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-cyan-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">RAG Cost</div>
+                    <div class="text-lg font-bold text-cyan-600 mt-1" id="total-retrieval-cost">$0.000</div>
+                    <div class="text-[8px] text-slate-400 mt-1">Avg: <span id="avg-rag-percent">0</span>%</div>
+                </div>
+                <div class="bg-white p-3 border border-cyan-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-blue-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Canary Req</div>
+                    <div class="text-lg font-bold text-blue-600 mt-1" id="canary-requests">0</div>
+                    <div class="text-[8px] text-slate-400 mt-1">Rate: <span id="canary-rate">0</span>%</div>
+                </div>
+                <div class="bg-white p-3 border border-cyan-200 shadow-sm rounded flex flex-col justify-between border-l-4 border-l-sky-500">
+                    <div class="text-[9px] font-bold text-slate-500 uppercase tracking-wide">Canary Rollback</div>
+                    <div class="text-lg font-bold text-sky-600 mt-1" id="canary-rollbacks">0</div>
+                    <div class="text-[8px] text-slate-400 mt-1">Rate: <span id="rollback-rate">0</span>%</div>
+                </div>
+            </div>
+
+            <div class="panel-card order-4" id="infra-card">
+                <div class="panel-card-header px-5 py-3 flex justify-between items-center">
+                    <h3 class="text-sm font-semibold text-slate-800">Deployment Health</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="flex items-center text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200" id="global-active-reqs">
+                            <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
+                            0 Active Connections
+                        </span>
+                        <button id="infra-toggle-btn" onclick="toggleInfraPanel()" class="text-[10px] font-semibold px-2 py-1 rounded border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 flex items-center gap-1">
+                            <span id="infra-toggle-label">Collapse</span>
+                            <svg id="infra-toggle-icon" class="w-3 h-3 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="p-5 bg-slate-50/50" id="infra-content">
+                    <div id="infra-nodes" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="text-xs text-slate-400 italic p-2">Awaiting traffic to map infrastructure nodes...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Department Chargeback Breakdown (NEW) -->
+            <div class="panel-card order-4" id="chargeback-card">
+                <div class="panel-card-header px-5 py-3">
+                    <h3 class="text-sm font-semibold text-slate-800">Chargeback by Department</h3>
+                </div>
+                <div class="p-5 bg-slate-50/50">
+                    <div id="chargeback-breakdown" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div class="text-xs text-slate-400 italic p-2">No department data available...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Telemetry + Advisor -->
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 order-3">
+                <div class="panel-card lg:col-span-2">
+                    <div class="panel-card-header px-5 py-3">
+                        <h3 class="text-sm font-semibold text-slate-800">Telemetry</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-white">
+                                <tr>
+                                    <th class="px-5 py-2 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Model Routed</th>
+                                    <th class="px-5 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">TTFT (ms)</th>
+                                    <th class="px-5 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">TPOT (ms)</th>
+                                    <th class="px-5 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Cost (USD)</th>
+                                    <th class="px-5 py-2 text-center text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Cache</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 bg-white" id="logs-body"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="bg-emerald-50/50 border border-emerald-200 rounded-lg p-5 shadow-sm">
+                    <h2 class="text-sm font-bold text-emerald-900 mb-1 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-600" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path></svg>
+                        Optimization Insights
+                    </h2>
+                    <p class="text-xs text-emerald-700 mb-4">Compound optimization analysis.</p>
+                    <div id="advisor-insights" class="space-y-3"></div>
+                </div>
+            </div>
+
+            <!-- ===== A/B MODEL COMPARISON (from Swagger POST /api/v1/experiments/compare) ===== -->
+            <div id="compare-panel" class="panel-card order-2">
+                <div class="panel-card-header px-5 py-3 flex items-center justify-between">
+                    <div>
+                        <h3 class="text-sm font-semibold text-slate-800">Model Comparison</h3>
+                        <p class="text-[10px] text-slate-400 mt-0.5">POST /api/v1/experiments/compare — run a head-to-head test between two quantized variants</p>
+                    </div>
+                    <span class="text-[9px] font-bold bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-0.5 rounded uppercase tracking-wide">Experimentation Lab</span>
+                </div>
+                <div class="p-5">
+                    <div id="compare-provider-health" class="mb-4 p-3 rounded-lg border border-slate-200 bg-slate-50 text-xs">
+                        <div class="text-slate-500">Loading provider health...</div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Prompt <span class="text-red-500">*</span></label>
+                            <textarea id="compare-prompt" rows="3" class="w-full bg-white border border-slate-300 rounded text-xs p-2.5 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner custom-scrollbar resize-none" placeholder="e.g. Explain the impact of Flash Attention on KV cache..."></textarea>
+                        </div>
+                        <div class="md:col-span-2 space-y-3">
+                            <div class="flex flex-wrap items-center gap-3">
+                                <div class="w-full md:w-48">
+                                    <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Number of Models</label>
+                                    <select id="compare-count" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400">
+                                        <option value="2" selected>2 Models</option>
+                                        <option value="3">3 Models</option>
+                                        <option value="4">4 Models</option>
+                                        <option value="5">5 Models</option>
+                                        <option value="6">6 Models</option>
+                                    </select>
+                                </div>
+                                <div class="text-[10px] text-slate-400 mt-5 md:mt-0">Choose how many compare slots to show.</div>
+                            </div>
+                            <div id="compare-slots" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex items-end">
+                        <button id="compare-btn" onclick="runCompare()" class="w-full md:w-auto bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded transition duration-200 flex justify-center items-center gap-2 text-sm shadow-sm h-10">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                            <span>Run Comparison</span>
+                            <div id="compare-spinner" class="spinner hidden"></div>
+                        </button>
+                    </div>
+
+                    <!-- Compare Results -->
+                    <div id="compare-results" class="hidden mt-2">
+                        <div id="compare-results-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+                        <!-- Delta Summary Bar -->
+                        <div id="compare-delta" class="mt-3 bg-slate-800 text-white rounded-lg px-5 py-3 flex flex-wrap gap-x-6 gap-y-2 text-xs items-center hidden">
+                            <span class="font-bold text-slate-300 uppercase tracking-wide text-[10px]">Δ Summary</span>
+                            <span id="delta-ttft"></span>
+                            <span id="delta-cost"></span>
+                            <span id="delta-accuracy"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="compare-sticky-bar" class="hidden fixed bottom-4 right-4 z-40 bg-white border border-slate-200 rounded-lg shadow-lg px-3 py-2">
+                <div class="flex items-center gap-3">
+                    <div class="text-[10px] text-slate-500">A/B quick action</div>
+                    <button id="compare-sticky-btn" onclick="runCompare()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 rounded transition duration-200 flex justify-center items-center gap-2 text-xs shadow-sm">
+                        <span>Run Comparison</span>
+                        <div id="compare-sticky-spinner" class="spinner hidden"></div>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB 2: CATALOG                             -->
+        <!-- ========================================== -->
+        <div id="tab-registry" class="hidden">
+            <div class="mb-6 border-b border-slate-200 pb-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900">Catalog</h2>
+                        <p class="text-slate-500 text-xs mt-1">Hardware constraints, precision trade-offs, and latency profiles fetched dynamically from the Model Registry.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="registry-last-updated" class="text-[10px] text-slate-400">Not refreshed yet</span>
+                        <button onclick="refreshRegistryCatalog()" class="text-xs font-semibold px-3 py-1.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50">Refresh</button>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 mt-4">
+                    <input id="registry-search" type="text" placeholder="Search model or base model" class="md:col-span-2 text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400" />
+                    <select id="registry-provider-filter" class="text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400">
+                        <option value="all">All Providers</option>
+                    </select>
+                    <select id="registry-fit-preset" class="text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400">
+                        <option value="chat">Preset: Chat Assistant</option>
+                        <option value="reasoning">Preset: Deep Reasoning</option>
+                        <option value="extraction">Preset: Fast Extraction</option>
+                        <option value="balanced">Preset: Balanced</option>
+                    </select>
+                    <select id="registry-sort" class="text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400">
+                        <option value="fit_desc">Sort: Fit Score High to Low</option>
+                        <option value="accuracy_desc">Sort: Accuracy High to Low</option>
+                        <option value="vram_asc">Sort: VRAM Low to High</option>
+                        <option value="cost_asc">Sort: Cost Factor Low to High</option>
+                    </select>
+                </div>
+            </div>
+            <div id="registry-content" class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4"></div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB 3: POLICIES                            -->
+        <!-- ========================================== -->
+        <div id="tab-playground" class="hidden">
+            <div class="mb-5 border-b border-slate-200 pb-4">
+                <h2 class="text-lg font-bold text-slate-900">Policies</h2>
+                <p class="text-slate-500 text-xs mt-1">Select a profile below — its active policies are shown inline. Edit, then execute to test routing and trace.</p>
+            </div>
+
+            <!-- ===== MERGED: Target Profile + Active Policies as ONE section ===== -->
+            <div class="panel-card mb-6">
+                <div class="panel-card-header px-5 py-3 flex items-center justify-between">
+                    <h3 class="text-sm font-bold text-slate-800">Profile & Policies</h3>
+                    <span class="text-[10px] text-slate-400">Select a profile to view and edit its governance settings</span>
+                </div>
+                <div class="p-5">
+                    <!-- Profile Selector Row -->
+                    <div id="profile-selector-row" class="flex flex-wrap gap-3 mb-6">
+                        <!-- Injected by JS -->
+                    </div>
+
+                    <!-- Inline Policy Editor — shown below selected card -->
+                    <div id="inline-policy-panel" class="hidden">
+                        <div class="border-t border-slate-100 pt-5">
+                            <div id="policy-display-or-edit">
+                                <!-- Injected by JS -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Gateway Simulator -->
+            <div class="flex flex-col gap-6">
+                <div class="panel-card">
+                    <div class="panel-card-header p-5">
+                        <h3 class="text-sm font-bold text-slate-800">Routing Gateway</h3>
+                        <p class="text-[10px] text-slate-400 mt-0.5">POST /api/v1/gateway/generate</p>
+                    </div>
+                    <div class="p-5">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">LLM Provider</label>
+                                <select id="gateway-provider" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                                    <option value="Groq">Groq</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Model Override (Optional)</label>
+                                <select id="gateway-model" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                                    <option value="">Auto (Profile Routing)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="mb-5">
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Payload</label>
+                            <textarea id="gateway-prompt" rows="3" class="w-full bg-white border border-slate-300 rounded text-sm p-3 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner custom-scrollbar" placeholder="Enter test prompt here..."></textarea>
+                        </div>
+                        <button id="gateway-btn" onclick="runGateway()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded transition duration-200 flex justify-center items-center gap-2 text-sm shadow-sm">
+                            <span>Execute Request</span>
+                            <div id="gateway-spinner" class="spinner hidden"></div>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="gateway-results" class="panel-card hidden">
+                    <div class="panel-card-header p-5">
+                        <h3 class="text-sm font-bold text-slate-800">Execution Trace</h3>
+                    </div>
+                    <div class="p-5">
+                        <div class="flex flex-wrap gap-2 mb-5 empty:hidden" id="gateway-badges"></div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Generated Output</h4>
+                                <div id="gateway-output" class="bg-slate-50 p-4 rounded border border-slate-200 text-slate-700 whitespace-pre-wrap custom-scrollbar overflow-y-auto text-xs min-h-[160px] max-h-[300px]"></div>
+                            </div>
+                            <div id="gateway-trace-container" class="hidden">
+                                <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Execution Pipeline Trace</h4>
+                                <div id="gateway-trace" class="space-y-3.5 pl-3 border-l-2 border-indigo-100 ml-1 py-1"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ========================================== -->
+        <!-- TAB 4: BENCHMARKS                          -->
+        <!-- ========================================== -->
+        <div id="tab-benchmarks" class="hidden space-y-6">
+            <div class="mb-2 border-b border-slate-200 pb-4">
+                <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900">Benchmarks</h2>
+                        <p class="text-slate-500 text-xs mt-1">Run benchmark suites, persist jobs, and inspect results from /api/v1/benchmarks.</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span id="benchmark-last-updated" class="text-[10px] text-slate-400">Not refreshed yet</span>
+                        <button onclick="fetchBenchmarkJobs(selectedBenchmarkJobId)" class="text-xs font-semibold px-3 py-1.5 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50">Refresh Jobs</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+                <div class="px-5 py-3 border-b border-slate-100 bg-slate-50">
+                    <h3 class="text-sm font-semibold text-slate-800">Run Benchmark Job</h3>
+                </div>
+                <div class="p-5">
+                    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Provider</label>
+                            <select id="benchmark-provider" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                                <option value="Groq">Groq</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Model (Optional)</label>
+                            <select id="benchmark-model" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                                <option value="">Auto (Provider Default)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Optimization Profile</label>
+                            <select id="benchmark-profile" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                                <option value="balanced">balanced</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Sample Size</label>
+                            <input id="benchmark-sample-size" type="number" min="1" max="10" value="1" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400" />
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Suites</label>
+                        <div class="flex flex-wrap gap-2 text-xs">
+                            <label class="flex items-center gap-1.5 px-2 py-1 rounded border border-slate-200 bg-slate-50">
+                                <input type="checkbox" class="benchmark-suite" value="smoke" checked />
+                                smoke
+                            </label>
+                            <label class="flex items-center gap-1.5 px-2 py-1 rounded border border-slate-200 bg-slate-50">
+                                <input type="checkbox" class="benchmark-suite" value="mmlu-lite" />
+                                mmlu-lite
+                            </label>
+                            <label class="flex items-center gap-1.5 px-2 py-1 rounded border border-slate-200 bg-slate-50">
+                                <input type="checkbox" class="benchmark-suite" value="hellaswag-lite" />
+                                hellaswag-lite
+                            </label>
+                        </div>
+                    </div>
+
+                    <button id="benchmark-run-btn" onclick="runBenchmarkJob()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded transition duration-200 flex justify-center items-center gap-2 text-sm shadow-sm">
+                        <span>Run Benchmark</span>
+                        <div id="benchmark-run-spinner" class="spinner hidden"></div>
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-card">
+                <div class="panel-card-header px-5 py-3 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-slate-800">Recent Trends</h3>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] text-slate-400" id="benchmark-trend-window">Window: last 10 jobs</span>
+                        <button onclick="exportBenchmarkTrendsCsv()" class="text-[10px] font-semibold px-2 py-1 rounded border border-slate-300 text-slate-700 bg-white hover:bg-slate-50">Export Trends CSV</button>
+                    </div>
+                </div>
+                <div class="p-5 space-y-4">
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-3" id="benchmark-trend-kpis">
+                        <div class="bg-white/80 border border-slate-200 rounded-xl p-3 shadow-sm">
+                            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Completed Jobs</div>
+                            <div id="benchmark-kpi-completed" class="text-lg font-bold text-slate-800 mt-1">0</div>
+                        </div>
+                        <div class="bg-white/80 border border-slate-200 rounded-xl p-3 shadow-sm">
+                            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Avg TTFT</div>
+                            <div id="benchmark-kpi-ttft" class="text-lg font-bold text-amber-600 mt-1">0 ms</div>
+                        </div>
+                        <div class="bg-white/80 border border-slate-200 rounded-xl p-3 shadow-sm">
+                            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Pass Rate</div>
+                            <div id="benchmark-kpi-passrate" class="text-lg font-bold text-emerald-600 mt-1">0%</div>
+                        </div>
+                        <div class="bg-white/80 border border-slate-200 rounded-xl p-3 shadow-sm">
+                            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide">Avg Cost / Job</div>
+                            <div id="benchmark-kpi-cost" class="text-lg font-bold text-blue-600 mt-1">$0.000000</div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div class="border border-slate-200 rounded-xl p-3 bg-white/80 shadow-sm">
+                            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">TTFT by Job</div>
+                            <div id="benchmark-ttft-bars" class="space-y-1.5"></div>
+                        </div>
+                        <div class="border border-slate-200 rounded-xl p-3 bg-white/80 shadow-sm">
+                            <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Cost by Job</div>
+                            <div id="benchmark-cost-bars" class="space-y-1.5"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="panel-card lg:col-span-2">
+                    <div class="panel-card-header px-5 py-3">
+                        <h3 class="text-sm font-semibold text-slate-800">Jobs</h3>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="min-w-full divide-y divide-slate-200">
+                            <thead class="bg-white">
+                                <tr>
+                                    <th class="px-5 py-2 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Job</th>
+                                    <th class="px-5 py-2 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Target</th>
+                                    <th class="px-5 py-2 text-left text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Status</th>
+                                    <th class="px-5 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Cases</th>
+                                    <th class="px-5 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Cost</th>
+                                    <th class="px-5 py-2 text-right text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="benchmark-jobs-body" class="divide-y divide-slate-100 bg-white">
+                                <tr><td colspan="6" class="px-5 py-4 text-xs text-slate-400 italic">No benchmark jobs yet.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="panel-card">
+                    <div class="panel-card-header px-5 py-3">
+                        <h3 class="text-sm font-semibold text-slate-800">Job Detail</h3>
+                    </div>
+                    <div class="p-5 space-y-3">
+                        <div class="flex gap-2">
+                            <button onclick="exportSelectedBenchmarkJson()" class="text-[10px] font-semibold px-2 py-1 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100">Export Job JSON</button>
+                            <button onclick="exportSelectedBenchmarkCsv()" class="text-[10px] font-semibold px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100">Export Job CSV</button>
+                        </div>
+                        <div id="benchmark-detail-meta" class="text-xs text-slate-500">Select a job to inspect summary and case results.</div>
+                        <div id="benchmark-detail-summary" class="grid grid-cols-2 gap-2 text-xs"></div>
+                        <div id="benchmark-detail-cases" class="max-h-[220px] overflow-y-auto custom-scrollbar text-xs border border-slate-200 rounded p-2 bg-slate-50 text-slate-700 whitespace-pre-wrap"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        /* ========================================================
+           LLM INFERENCE OPS - CONTROL PLANE UI
+           ========================================================
+           
+           FILE: app/static/index.html (2000+ lines)
+           PURPOSE: Single-page control plane for multi-model LLM workloads
+           
+           ARCHITECTURE OVERVIEW:
+           
+           The UI consists of 4 main tabs managed by switchTab():
+           
+           1. OVERVIEW TAB (tab-finops)
+              - KPI cards: Total requests, spend, TTFT, cache hit rate
+              - Deployment health panel with infrastructure nodes
+              - Live telemetry table (last 10 requests)
+              - Optimization advisor: Backend AI + derived telemetry insights
+              - Multi-model comparison panel (2-6 dynamic slots)
+              - Sticky A/B comparison action bar
+           
+           2. CATALOG TAB (tab-registry)
+              - Model discovery with dynamic fit scoring
+              - Filters: keyword search, provider, optimization preset, sort
+              - Fit score calculation: accuracy, cost, VRAM, reliability
+              - Quick launch to A/B compare from card
+              - Auto-refresh: 6s (when tab visible)
+           
+           3. POLICIES TAB (tab-playground)
+              - Profile selector cards (fast, balanced, aggressive, etc.)
+              - Inline policy editor: temperature, max_tokens, feature flags
+              - Gateway simulator: POST /api/v1/gateway/generate
+              - Execution trace showing routing pipeline steps
+           
+           4. BENCHMARKS TAB (tab-benchmarks)
+              - Job creation form: provider, model, profile, suites, sample_size
+              - Trend analysis: KPIs (completed jobs, avg TTFT, pass rate, cost)
+              - Job history table with status pills
+              - Job detail panel with summary & case results
+              - CSV/JSON export for jobs and trends
+              - Auto-refresh: 5s (when tab visible + not running + no interaction)
+           
+           KEY SYSTEMS:
+           
+           - TAB SWITCHING (switchTab): Manages page context display and tab-specific auto-refresh
+           - BENCHMARKS ENGINE: Job submission, status polling, result aggregation
+           - MULTI-MODEL COMPARISON: Dynamic slot rendering, batch comparison API
+           - MODEL REGISTRY: Search, fit scoring, catalog discovery
+           - GOVERNANCE: Profile selection, policy editing, feature flag management
+           - GATEWAY ROUTING: Test inference with selected profile + routing trace
+           - ADVISOR INSIGHTS: Merge backend AI recommendations + derived telemetry analysis
+           - AUTO-REFRESH: Dashboard 2s, Registry 6s, Benchmarks 5s (with interaction awareness)
+           
+           BACKEND ENDPOINTS CONSUMED:
+           
+           - /api/v1/dashboard/metrics               (GET)  KPIs and infrastructure state
+           - /api/v1/advisor/insights                (GET)  AI optimization recommendations
+           - /api/v1/experiments/variants            (GET)  Model registry
+           - /api/v1/experiments/compare-batch       (POST) Multi-model comparison
+           - /api/v1/gateway/generate                (POST) Routing test with trace
+           - /api/v1/gateway/providers               (GET)  Provider catalog
+           - /api/v1/governance/profiles             (GET)  Policy profiles
+           - /api/v1/benchmarks/jobs                 (GET)  Job history
+           - /api/v1/benchmarks/jobs/{id}            (GET)  Job detail
+           - /api/v1/benchmarks/run                  (POST) Create benchmark job
+           
+           STATE MANAGEMENT:
+           Global variables hold cached backend state:
+           - availableModels, registryData, providerCatalog: Model discovery
+           - governanceState: Profiles and policies
+           - latestDashboardMetrics: KPIs for derived insights
+           - selectedProfile, selectedBenchmarkJobId: User selections
+           - compareSlotState: Multi-model slot configuration
+           - benchmarkJobsSnapshot: Recent benchmark jobs
+           
+           INITIALIZATION:
+           window.onload → initGlobal() → Load all state + attach listeners + start intervals
+           
+           ======================================================== */
+        
+        /* ========================================================
+           GLOBAL STATE & INITIALIZATION
+           ======================================================== */
+        
+        let availableModels = [];
+        let governanceState = [];
+        let editingProfile = null;
+        let selectedProfile = null;
+        let observabilityRefreshInFlight = false;
+        let observabilityIntervalId = null;
+        let providerCatalog = [];
+        let registryData = [];
+        let registryAutoRefreshId = null;
+        let compareRunning = false;
+        let latestLogSignature = null;
+        let latestRowHighlightUntil = 0;
+        let infraCollapsed = false;
+        let infraAutoCollapseInitialized = false;
+        let lastRenderedRegistryItems = [];
+        let benchmarkAutoRefreshId = null;
+        let selectedBenchmarkJobId = null;
+        let benchmarkRunInFlight = false;
+        let benchmarkJobsSnapshot = [];
+        let selectedBenchmarkJob = null;
+        let latestDashboardMetrics = null;
+        let benchmarkInteractionUntil = 0;
+        let compareSlotCount = 2;
+        let compareSlotState = [];
+        
+        // NEW: RBAC Role-Based Access Control
+        let currentUserRole = 'user'; // Default role
+        const rolePermissions = {
+            'viewer': {
+                tabs: ['finops'],
+                canEditPolicy: false,
+                canRunBenchmarks: false,
+                canExecuteRequests: false,
+                description: 'Read-only observability access'
+            },
+            'user': {
+                tabs: ['finops', 'registry'],
+                canEditPolicy: false,
+                canRunBenchmarks: false,
+                canExecuteRequests: true,
+                description: 'Request execution + observability'
+            },
+            'developer': {
+                tabs: ['finops', 'registry', 'playground'],
+                canEditPolicy: false,
+                canRunBenchmarks: true,
+                canExecuteRequests: true,
+                description: 'Testing + benchmarking access'
+            },
+            'mlops': {
+                tabs: ['finops', 'registry', 'playground', 'benchmarks'],
+                canEditPolicy: true,
+                canRunBenchmarks: true,
+                canExecuteRequests: true,
+                description: 'Full governance + benchmarking'
+            },
+            'admin': {
+                tabs: ['finops', 'registry', 'playground', 'benchmarks'],
+                canEditPolicy: true,
+                canRunBenchmarks: true,
+                canExecuteRequests: true,
+                description: 'Full platform access'
+            }
+        };
+
+        function updateUserRole(role) {
+            currentUserRole = role;
+            applyRbacRestrictions();
+            console.log(`✅ Role updated to: ${role} - ${rolePermissions[role].description}`);
+        }
+
+        function applyRbacRestrictions() {
+            const perms = rolePermissions[currentUserRole];
+            const tabButtons = document.querySelectorAll('.tab-btn');
+            
+            // Hide/show tab buttons based on role permissions
+            ['finops', 'registry', 'playground', 'benchmarks'].forEach((tabId, idx) => {
+                const btn = document.getElementById(`btn-${tabId}`);
+                const hasAccess = perms.tabs.includes(tabId);
+                btn.style.display = hasAccess ? 'block' : 'none';
+                btn.disabled = !hasAccess;
+                
+                if (hasAccess && currentUserRole === 'viewer' && tabId !== 'finops') {
+                    btn.title = `Restricted: ${perms.description}`;
+                }
+            });
+            
+            // Hide policy editor if user lacks permission
+            const editPolicyBtn = document.querySelector('[onclick*="editGovernance"]');
+            if (editPolicyBtn) editPolicyBtn.style.display = perms.canEditPolicy ? 'block' : 'none';
+            
+            // Hide benchmark runner if user lacks permission
+            const benchmarkBtn = document.getElementById('benchmark-run-btn');
+            if (benchmarkBtn) benchmarkBtn.disabled = !perms.canRunBenchmarks;
+            
+            // Hide gateway executor if user lacks permission
+            const gatewayBtn = document.getElementById('gateway-btn');
+            if (gatewayBtn) gatewayBtn.disabled = !perms.canExecuteRequests;
+            
+            // Switch to first allowed tab if current is not accessible
+            const currentTab = document.querySelector('.tab-btn.active')?.id?.replace('btn-', '');
+            if (currentTab && !perms.tabs.includes(currentTab)) {
+                const firstAllowedTab = perms.tabs[0];
+                switchTab(firstAllowedTab);
+            }
+        }
+
+        /* ========================================================
+           TAB SWITCHING & PAGE CONTEXT MANAGEMENT
+           Handles switching between 4 main pages:
+           1. Overview (Finops) - KPIs, telemetry, comparisons
+           2. Catalog (Registry) - Model variant discovery and fit scoring
+           3. Policies (Playground) - Governance profiles & gateway testing
+           4. Benchmarks - Job management, trends, and result export
+           ======================================================== */
+        
+        function switchTab(tabId) {
+            document.querySelectorAll('main > div[id^="tab-"]').forEach(div => div.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`btn-${tabId}`);
+            activeBtn.classList.add('active');
+
+            const pageContext = document.getElementById('page-context');
+            const tabMeta = {
+                finops: 'Overview, live telemetry, and optimization signals',
+                registry: 'Catalog, quantization fit, and deployment tradeoffs',
+                playground: 'Policies, routing, and governance control',
+                benchmarks: 'Benchmark jobs, trends, exports, and result inspection',
+            };
+
+            if (pageContext) {
+                pageContext.textContent = tabMeta[tabId] || 'Unified runtime, observability, and benchmark workflows';
+            }
+
+            if (tabId === 'registry') {
+                refreshRegistryCatalog();
+            }
+
+            if (tabId === 'benchmarks') {
+                fetchBenchmarkJobs(selectedBenchmarkJobId);
+            }
+
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            updateStickyCompareBar();
+        }
+
+        function benchmarkStatusPill(status) {
+            /* BENCHMARK UI UTILITIES
+               Renders colored pill badges for job status (completed, running, failed)
+               Used in benchmark jobs table and detail panel */
+            if (status === 'completed') {
+                return '<span class="px-2 py-0.5 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 text-[10px] font-bold uppercase">Completed</span>';
+            }
+            if (status === 'running') {
+                return '<span class="px-2 py-0.5 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 text-[10px] font-bold uppercase">Running</span>';
+            }
+            if (status === 'failed') {
+                return '<span class="px-2 py-0.5 rounded border border-red-200 bg-red-50 text-red-700 text-[10px] font-bold uppercase">Failed</span>';
+            }
+            return `<span class="px-2 py-0.5 rounded border border-slate-200 bg-slate-50 text-slate-600 text-[10px] font-bold uppercase">${status || 'unknown'}</span>`;
+        }
+
+        function setBenchmarkLoading(isLoading) {
+            benchmarkRunInFlight = isLoading;
+            const btn = document.getElementById('benchmark-run-btn');
+            const spinner = document.getElementById('benchmark-run-spinner');
+            if (btn) btn.disabled = isLoading;
+            if (spinner) spinner.classList.toggle('hidden', !isLoading);
+        }
+
+        function getSelectedBenchmarkSuites() {
+            return Array.from(document.querySelectorAll('.benchmark-suite:checked')).map(x => x.value);
+        }
+
+        function renderBenchmarkProfileOptions() {
+            const profileSelect = document.getElementById('benchmark-profile');
+            if (!profileSelect) return;
+
+            const profiles = governanceState.map(p => p.profile_name).filter(Boolean);
+            const previous = profileSelect.value;
+            const options = profiles.length ? profiles : ['balanced'];
+
+            profileSelect.innerHTML = options.map(p => `<option value="${p}">${p}</option>`).join('');
+            if (options.includes(previous)) {
+                profileSelect.value = previous;
+            } else if (selectedProfile && options.includes(selectedProfile)) {
+                profileSelect.value = selectedProfile;
+            }
+        }
+
+        function renderBenchmarkModelOptions() {
+            const providerSelect = document.getElementById('benchmark-provider');
+            const modelSelect = document.getElementById('benchmark-model');
+
+            if (!providerSelect || !modelSelect) return;
+
+            const providerEntry = providerCatalog.find(p => p.provider === providerSelect.value);
+            const models = providerEntry?.models || [];
+
+            modelSelect.innerHTML = [
+                '<option value="">Auto (Provider Default)</option>',
+                ...models.map(m => `<option value="${m}">${m}</option>`)
+            ].join('');
+        }
+
+        function renderBenchmarkProviderOptions() {
+            const providerSelect = document.getElementById('benchmark-provider');
+            if (!providerSelect) return;
+
+            const enabledProviders = providerCatalog.filter(p => p.enabled).map(p => p.provider);
+            if (!enabledProviders.length) {
+                providerSelect.innerHTML = '<option value="Groq">Groq</option>';
+                renderBenchmarkModelOptions();
+                return;
+            }
+
+            const previous = providerSelect.value;
+            providerSelect.innerHTML = enabledProviders.map(p => `<option value="${p}">${p}</option>`).join('');
+            providerSelect.value = enabledProviders.includes(previous) ? previous : enabledProviders[0];
+            providerSelect.onchange = renderBenchmarkModelOptions;
+            renderBenchmarkModelOptions();
+        }
+
+        function renderBenchmarkDetail(job) {
+            const meta = document.getElementById('benchmark-detail-meta');
+            const summary = document.getElementById('benchmark-detail-summary');
+            const cases = document.getElementById('benchmark-detail-cases');
+
+            selectedBenchmarkJob = job || null;
+
+            if (!meta || !summary || !cases) return;
+
+            if (!job) {
+                meta.textContent = 'Select a job to inspect summary and case results.';
+                summary.innerHTML = '';
+                cases.textContent = '';
+                return;
+            }
+
+            meta.innerHTML = `
+                <div><span class="font-semibold text-slate-700">${job.job_id}</span></div>
+                <div class="mt-1">${job.provider} / ${job.model_name || 'auto'} · ${job.optimization_profile}</div>
+                <div class="mt-1">${benchmarkStatusPill(job.status)}</div>
+            `;
+
+            const s = job.summary || {};
+            summary.innerHTML = `
+                <div class="bg-slate-50 border border-slate-200 rounded p-2"><div class="text-[10px] text-slate-500 uppercase">Cases</div><div class="font-semibold text-slate-700">${s.passed_cases ?? 0}/${s.total_cases ?? 0}</div></div>
+                <div class="bg-slate-50 border border-slate-200 rounded p-2"><div class="text-[10px] text-slate-500 uppercase">Avg TTFT</div><div class="font-semibold text-slate-700">${s.avg_ttft_ms ?? 0} ms</div></div>
+                <div class="bg-slate-50 border border-slate-200 rounded p-2"><div class="text-[10px] text-slate-500 uppercase">Avg TPOT</div><div class="font-semibold text-slate-700">${s.avg_tpot_ms ?? 0} ms</div></div>
+                <div class="bg-slate-50 border border-slate-200 rounded p-2"><div class="text-[10px] text-slate-500 uppercase">Total Cost</div><div class="font-semibold text-emerald-700">$${(s.total_cost_usd ?? 0).toFixed(6)}</div></div>
+            `;
+
+            const lines = (job.results || []).map((r, idx) => {
+                const prefix = r.success ? 'PASS' : 'FAIL';
+                const ttft = r.ttft_ms != null ? `${Number(r.ttft_ms).toFixed(1)}ms` : '—';
+                const cost = r.total_cost_usd != null ? `$${Number(r.total_cost_usd).toFixed(6)}` : '$0.000000';
+                const err = r.error ? ` | err=${r.error}` : '';
+                return `${idx + 1}. [${prefix}] ${r.suite} | ttft=${ttft} | cost=${cost}${err}`;
+            });
+
+            cases.textContent = lines.length ? lines.join('\n') : 'No case results available yet.';
+        }
+
+        function focusBenchmarkDetailPanel() {
+            const panel = document.getElementById('benchmark-detail-meta');
+            if (!panel) return;
+
+            panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            panel.classList.add('ring-2', 'ring-indigo-200', 'rounded');
+            setTimeout(() => {
+                panel.classList.remove('ring-2', 'ring-indigo-200', 'rounded');
+            }, 700);
+        }
+
+        function csvCell(value) {
+            const s = value == null ? '' : String(value);
+            return `"${s.replace(/"/g, '""')}"`;
+        }
+
+        function downloadTextFile(filename, mimeType, content) {
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportSelectedBenchmarkJson() {
+            if (!selectedBenchmarkJob) {
+                alert('Select a benchmark job first.');
+                return;
+            }
+
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const name = `benchmark-job-${selectedBenchmarkJob.job_id}-${stamp}.json`;
+            downloadTextFile(name, 'application/json;charset=utf-8', JSON.stringify(selectedBenchmarkJob, null, 2));
+        }
+
+        function exportSelectedBenchmarkCsv() {
+            if (!selectedBenchmarkJob) {
+                alert('Select a benchmark job first.');
+                return;
+            }
+
+            const rows = selectedBenchmarkJob.results || [];
+            if (!rows.length) {
+                alert('Selected job has no case rows to export.');
+                return;
+            }
+
+            const header = [
+                'job_id', 'status', 'provider', 'model_name', 'optimization_profile',
+                'suite', 'prompt', 'success', 'error', 'ttft_ms', 'tpot_ms',
+                'total_latency_ms', 'total_cost_usd', 'provider_used', 'model_used'
+            ];
+
+            const lines = [header.map(csvCell).join(',')];
+            rows.forEach(r => {
+                lines.push([
+                    selectedBenchmarkJob.job_id,
+                    selectedBenchmarkJob.status,
+                    selectedBenchmarkJob.provider,
+                    selectedBenchmarkJob.model_name,
+                    selectedBenchmarkJob.optimization_profile,
+                    r.suite,
+                    r.prompt,
+                    r.success,
+                    r.error,
+                    r.ttft_ms,
+                    r.tpot_ms,
+                    r.total_latency_ms,
+                    r.total_cost_usd,
+                    r.provider_used,
+                    r.model_used,
+                ].map(csvCell).join(','));
+            });
+
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const name = `benchmark-job-${selectedBenchmarkJob.job_id}-${stamp}.csv`;
+            downloadTextFile(name, 'text/csv;charset=utf-8', lines.join('\n'));
+        }
+
+        function exportBenchmarkTrendsCsv() {
+            const recentCompleted = (benchmarkJobsSnapshot || []).filter(j => j.status === 'completed').slice(0, 10);
+            if (!recentCompleted.length) {
+                alert('No completed benchmark jobs in the trend window.');
+                return;
+            }
+
+            const header = [
+                'job_id', 'created_at', 'updated_at', 'provider', 'model_name', 'optimization_profile',
+                'total_cases', 'passed_cases', 'failed_cases', 'avg_ttft_ms', 'avg_tpot_ms',
+                'avg_total_latency_ms', 'total_cost_usd'
+            ];
+
+            const lines = [header.map(csvCell).join(',')];
+            recentCompleted.forEach(j => {
+                const s = j.summary || {};
+                lines.push([
+                    j.job_id,
+                    j.created_at,
+                    j.updated_at,
+                    j.provider,
+                    j.model_name,
+                    j.optimization_profile,
+                    s.total_cases,
+                    s.passed_cases,
+                    s.failed_cases,
+                    s.avg_ttft_ms,
+                    s.avg_tpot_ms,
+                    s.avg_total_latency_ms,
+                    s.total_cost_usd,
+                ].map(csvCell).join(','));
+            });
+
+            const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+            const name = `benchmark-trends-last-10-${stamp}.csv`;
+            downloadTextFile(name, 'text/csv;charset=utf-8', lines.join('\n'));
+        }
+
+        function renderBenchmarkTrends(jobs) {
+            /* BENCHMARK TRENDS ANALYSIS
+               Displays aggregate metrics and bar charts from recent completed jobs
+               
+               DATA SOURCE:
+               - Input: jobs array from /api/v1/benchmarks/jobs
+               - Filters: Keep only completed jobs, limit to last 10
+               - Returns early if empty (shows "No completed jobs" message)
+               
+               RENDERED METRICS (6 KPIs):
+               - Completed Jobs: Count of recent completed benchmark jobs
+               - Avg TTFT: Average Time-To-First-Token across jobs
+               - Pass Rate: Percentage of passed test cases (passed/total)
+               - Avg Cost/Job: Average total spend per job
+               
+               VISUALIZATIONS (2 bar charts):
+               - TTFT by Job: Horizontal bars showing latency trend
+                 * Color: amber-500
+                 * Width: Normalized to max TTFT in window
+                 * Labels: job_id (first 6 chars) + TTFT in ms
+               
+               - Cost by Job: Horizontal bars showing spend trend  
+                 * Color: blue-500
+                 * Width: Normalized to max cost in window
+                 * Labels: job_id (first 6 chars) + cost in USD
+               
+               NORMALIZATION: All bar widths use Math.max(4, ...) to ensure visibility
+               */
+            const completedEl = document.getElementById('benchmark-kpi-completed');
+            const ttftEl = document.getElementById('benchmark-kpi-ttft');
+            const passEl = document.getElementById('benchmark-kpi-passrate');
+            const costEl = document.getElementById('benchmark-kpi-cost');
+            const ttftBars = document.getElementById('benchmark-ttft-bars');
+            const costBars = document.getElementById('benchmark-cost-bars');
+
+            if (!completedEl || !ttftEl || !passEl || !costEl || !ttftBars || !costBars) return;
+
+            const recentCompleted = (jobs || []).filter(j => j.status === 'completed').slice(0, 10);
+
+            if (!recentCompleted.length) {
+                completedEl.textContent = '0';
+                ttftEl.textContent = '0 ms';
+                passEl.textContent = '0%';
+                costEl.textContent = '$0.000000';
+                ttftBars.innerHTML = '<div class="text-xs text-slate-400 italic">No completed benchmark jobs yet.</div>';
+                costBars.innerHTML = '<div class="text-xs text-slate-400 italic">Run a benchmark to see cost trend.</div>';
+                return;
+            }
+
+            const avg = arr => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0);
+            const ttfts = recentCompleted.map(j => Number(j.summary?.avg_ttft_ms || 0));
+            const costs = recentCompleted.map(j => Number(j.summary?.total_cost_usd || 0));
+
+            const totalCases = recentCompleted.reduce((sum, j) => sum + Number(j.summary?.total_cases || 0), 0);
+            const totalPassed = recentCompleted.reduce((sum, j) => sum + Number(j.summary?.passed_cases || 0), 0);
+
+            const avgTtft = avg(ttfts);
+            const avgCost = avg(costs);
+            const passRate = totalCases > 0 ? (totalPassed / totalCases) * 100 : 0;
+
+            completedEl.textContent = String(recentCompleted.length);
+            ttftEl.textContent = `${avgTtft.toFixed(1)} ms`;
+            passEl.textContent = `${passRate.toFixed(1)}%`;
+            costEl.textContent = `$${avgCost.toFixed(6)}`;
+
+            const maxTtft = Math.max(...ttfts, 1);
+            const maxCost = Math.max(...costs, 0.000001);
+
+            ttftBars.innerHTML = recentCompleted.map(j => {
+                const v = Number(j.summary?.avg_ttft_ms || 0);
+                const width = Math.max(4, Math.round((v / maxTtft) * 100));
+                return `
+                    <div class="flex items-center gap-2">
+                        <span class="w-16 text-[10px] font-mono text-slate-500">${j.job_id.slice(0, 6)}</span>
+                        <div class="flex-1 h-2 rounded bg-slate-200 overflow-hidden"><div class="h-2 bg-amber-500" style="width: ${width}%"></div></div>
+                        <span class="w-14 text-right text-[10px] font-mono text-slate-700">${v.toFixed(1)}ms</span>
+                    </div>
+                `;
+            }).join('');
+
+            costBars.innerHTML = recentCompleted.map(j => {
+                const v = Number(j.summary?.total_cost_usd || 0);
+                const width = Math.max(4, Math.round((v / maxCost) * 100));
+                return `
+                    <div class="flex items-center gap-2">
+                        <span class="w-16 text-[10px] font-mono text-slate-500">${j.job_id.slice(0, 6)}</span>
+                        <div class="flex-1 h-2 rounded bg-slate-200 overflow-hidden"><div class="h-2 bg-blue-500" style="width: ${width}%"></div></div>
+                        <span class="w-20 text-right text-[10px] font-mono text-slate-700">$${v.toFixed(6)}</span>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function fetchBenchmarkJobs(focusJobId = null, shouldFocusDetail = false) {
+            /* BENCHMARK JOBS FETCHING & LIST RENDERING
+               Polls /api/v1/benchmarks/jobs and displays results in table
+               
+               INPUTS:
+               - focusJobId: Job to highlight and display in detail panel
+               - shouldFocusDetail: Scroll to detail panel after rendering
+               
+               DATA FETCH:
+               - GET /api/v1/benchmarks/jobs
+               - Expected response: { jobs: [...] }
+               - Returns early if jobs array is empty
+               
+               SORTING:
+               - Sorts by updated_at DESC (newest first)
+               - Falls back to created_at if updated_at is null
+               
+               CACHING:
+               - Updates benchmarkJobsSnapshot (used by trend analysis)
+               - Re-computes trend KPIs via renderBenchmarkTrends()
+               
+               TABLE RENDERING:
+               Each row shows:
+               - Job ID (first 8 chars)
+               - Target: Provider / Model name
+               - Status: Colored pill (Completed, Running, Failed)
+               - Cases: Total test cases
+               - Cost: Total spend for job
+               - Action: View/Selected button
+               
+               SELECTION:
+               - Highlighted row: indigo-50/50 background + left indigo border
+               - Stores selectedBenchmarkJobId for detail panel
+               - Renders job details via renderBenchmarkDetail()
+               
+               FOCUS BEHAVIOR:
+               - If focusJobId provided: Highlight that job
+               - Falls back to selectedBenchmarkJobId or first job
+               - If shouldFocusDetail=true: Scroll detail panel into view
+               
+               TIMESTAMP: Updates "Updated HH:MM:SS" label in tab header
+               */
+            const data = await fetchData('/api/v1/benchmarks/jobs');
+            const tbody = document.getElementById('benchmark-jobs-body');
+            const stamp = document.getElementById('benchmark-last-updated');
+
+            if (!tbody) return;
+            if (!data || !Array.isArray(data.jobs)) return;
+
+            const jobs = [...data.jobs].sort((a, b) => {
+                const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+                const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+                return tb - ta;
+            });
+
+            benchmarkJobsSnapshot = jobs;
+
+            renderBenchmarkTrends(jobs);
+
+            if (!jobs.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-5 py-4 text-xs text-slate-400 italic">No benchmark jobs yet.</td></tr>';
+                renderBenchmarkDetail(null);
+                return;
+            }
+
+            tbody.innerHTML = jobs.map(job => {
+                const cases = job.summary?.total_cases ?? job.results?.length ?? 0;
+                const cost = Number(job.summary?.total_cost_usd ?? 0).toFixed(6);
+                const selected = selectedBenchmarkJobId === job.job_id;
+
+                return `
+                    <tr class="hover:bg-slate-50 transition ${selected ? 'bg-indigo-50/50 border-l-4 border-l-indigo-500' : ''}">
+                        <td class="px-5 py-2.5 text-xs font-mono ${selected ? 'font-bold text-indigo-800' : 'text-slate-700'}">${job.job_id.slice(0, 8)}…</td>
+                        <td class="px-5 py-2.5 text-xs text-slate-700">${job.provider} / ${job.model_name || 'auto'}</td>
+                        <td class="px-5 py-2.5 text-xs">${benchmarkStatusPill(job.status)}</td>
+                        <td class="px-5 py-2.5 text-xs text-right font-mono text-slate-700">${cases}</td>
+                        <td class="px-5 py-2.5 text-xs text-right font-mono text-emerald-700">$${cost}</td>
+                        <td class="px-5 py-2.5 text-right">
+                            <button onclick="showBenchmarkJob('${job.job_id}')" class="text-[10px] font-semibold px-2 py-1 rounded border ${selected ? 'border-emerald-300 bg-emerald-50 text-emerald-700' : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'}">${selected ? 'Selected' : 'View'}</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+
+            if (stamp) {
+                stamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+            }
+
+            const targetJob = focusJobId || selectedBenchmarkJobId || jobs[0]?.job_id;
+            if (targetJob) {
+                const hit = jobs.find(j => j.job_id === targetJob) || jobs[0];
+                selectedBenchmarkJobId = hit.job_id;
+                renderBenchmarkDetail(hit);
+                if (shouldFocusDetail) {
+                    focusBenchmarkDetailPanel();
+                }
+            }
+        }
+
+        async function showBenchmarkJob(jobId) {
+            if (!jobId) return;
+
+            try {
+                const res = await fetch(`/api/v1/benchmarks/jobs/${jobId}`);
+                if (!res.ok) throw new Error(`Benchmark job lookup failed (${res.status})`);
+                const job = await res.json();
+                selectedBenchmarkJobId = job.job_id;
+                renderBenchmarkDetail(job);
+                await fetchBenchmarkJobs(selectedBenchmarkJobId, true);
+            } catch (e) {
+                console.error('Benchmark detail error:', e);
+                alert(e?.message || 'Unable to load benchmark job detail.');
+            }
+        }
+
+        async function runBenchmarkJob() {
+            /* BENCHMARK JOB SUBMISSION
+               Creates and submits a new benchmark job to /api/v1/benchmarks/run
+               
+               INPUTS (from form controls):
+               - benchmark-provider: LLM provider (Groq, Gemini, OpenAI, etc.)
+               - benchmark-model: Model override (optional, empty = auto)
+               - benchmark-profile: Governance profile (balanced, aggressive, etc.)
+               - benchmark-sample-size: Number of repetitions per suite (1-10)
+               - benchmark-suite checkboxes: Selected test suites
+                 (smoke, mmlu-lite, hellaswag-lite, etc.)
+               
+               VALIDATION:
+               - At least one suite must be selected
+               - Sample size must be >= 1
+               
+               REQUEST BODY:
+               {
+                 provider, model_name, optimization_profile,
+                 suites: [], sample_size: int
+               }
+               
+               SUCCESS WORKFLOW:
+               1. Extract job_id from response
+               2. Set as selectedBenchmarkJobId
+               3. Fetch full job list with fetchBenchmarkJobs()
+               4. Highlight newly created job in table
+               5. Focus job detail panel
+               
+               ERROR HANDLING:
+               - Parse response.status and detail field for user-friendly messages
+               - Show alert with error details
+               
+               LOADING STATE:
+               - setBenchmarkLoading(true/false) during API call
+               - Disables submit button and shows spinner
+               
+               PERFORMANCE:
+               - Benchmark jobs can take seconds to minutes to complete
+               - Auto-refresh happens every 5 seconds if tab is active
+               */
+            const provider = document.getElementById('benchmark-provider')?.value || 'Groq';
+            const modelName = document.getElementById('benchmark-model')?.value || null;
+            const profile = document.getElementById('benchmark-profile')?.value || 'balanced';
+            const sampleSize = Math.max(1, parseInt(document.getElementById('benchmark-sample-size')?.value || '1', 10));
+            const suites = getSelectedBenchmarkSuites();
+
+            if (!suites.length) {
+                alert('Select at least one benchmark suite.');
+                return;
+            }
+
+            setBenchmarkLoading(true);
+            try {
+                const response = await fetch('/api/v1/benchmarks/run', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        provider,
+                        model_name: modelName,
+                        optimization_profile: profile,
+                        suites,
+                        sample_size: sampleSize,
+                    })
+                });
+
+                if (!response.ok) {
+                    let detail = `Benchmark run failed (${response.status})`;
+                    try {
+                        const err = await response.json();
+                        if (err?.detail) {
+                            detail = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
+                        }
+                    } catch (_) {}
+                    throw new Error(detail);
+                }
+
+                const job = await response.json();
+                selectedBenchmarkJobId = job.job_id;
+                await fetchBenchmarkJobs(selectedBenchmarkJobId, false);
+            } catch (e) {
+                console.error('Benchmark run error:', e);
+                alert(e?.message || 'Unable to run benchmark job.');
+            } finally {
+                setBenchmarkLoading(false);
+            }
+        }
+
+        function setCompareLoading(isLoading) {
+            compareRunning = isLoading;
+
+            const btn = document.getElementById('compare-btn');
+            const spinner = document.getElementById('compare-spinner');
+            const stickyBtn = document.getElementById('compare-sticky-btn');
+            const stickySpinner = document.getElementById('compare-sticky-spinner');
+
+            if (btn) btn.disabled = isLoading;
+            if (spinner) spinner.classList.toggle('hidden', !isLoading);
+            if (stickyBtn) stickyBtn.disabled = isLoading;
+            if (stickySpinner) stickySpinner.classList.toggle('hidden', !isLoading);
+        }
+
+        /* ========================================================
+           MULTI-MODEL COMPARISON SYSTEM
+           - Dynamic slot management (2-6 models)
+           - Batch comparison via /api/v1/experiments/compare-batch
+           - Results grid rendering with deltas
+           - Slot state persistence across rerenders
+           ======================================================== */
+
+        function updateStickyCompareBar() {
+            const sticky = document.getElementById('compare-sticky-bar');
+            const finopsTab = document.getElementById('tab-finops');
+            const compareBtn = document.getElementById('compare-btn');
+            if (!sticky || !finopsTab || !compareBtn) return;
+
+            if (finopsTab.classList.contains('hidden')) {
+                sticky.classList.add('hidden');
+                return;
+            }
+
+            const rect = compareBtn.getBoundingClientRect();
+            const inView = rect.top >= 0 && rect.bottom <= window.innerHeight;
+            sticky.classList.toggle('hidden', inView);
+        }
+
+        function providerSetupHint(providerName) {
+            const hints = {
+                'Groq': 'GROQ_API_KEY',
+                'Gemini': 'GEMINI_API_KEY',
+                'OpenAI': 'OPENAI_API_KEY',
+                'Anthropic': 'ANTHROPIC_API_KEY (adapter not implemented yet)',
+                'xAI': 'XAI_API_KEY',
+                'Mistral': 'MISTRAL_API_KEY',
+                'DeepSeek': 'DEEPSEEK_API_KEY',
+                'OpenRouter': 'OPENROUTER_API_KEY',
+                'NVIDIA NIM': 'NVIDIA_NIM_API_KEY',
+                'Alibaba': 'ALIBABA_API_KEY',
+                'Ollama': 'OLLAMA_BASE_URL (no API key required; endpoint must be reachable)',
+                'vLLM': 'VLLM_BASE_URL (endpoint must be reachable)',
+                'Hugging Face TGI': 'TGI_BASE_URL (endpoint must be reachable)',
+                'llama.cpp': 'LLAMACPP_BASE_URL (endpoint must be reachable)',
+            };
+
+            return hints[providerName] || `${providerName.toUpperCase().replace(/\s+/g, '_')}_API_KEY`;
+        }
+
+        function showProviderSetupHelp() {
+            const disabled = providerCatalog.filter(p => !p.enabled);
+            if (!disabled.length) {
+                alert('All providers are configured and available.');
+                return;
+            }
+
+            const lines = disabled.map(p => {
+                const hint = providerSetupHint(p.provider);
+                return `${p.provider}: add ${hint}`;
+            });
+
+            alert(`To enable more providers, update your .env and restart the API:\n\n${lines.join('\n')}`);
+        }
+
+        function renderProviderHealthStrip() {
+            const container = document.getElementById('compare-provider-health');
+            if (!container) return;
+
+            if (!providerCatalog.length) {
+                container.innerHTML = '<div class="text-slate-500">Provider catalog unavailable.</div>';
+                return;
+            }
+
+            const enabled = providerCatalog.filter(p => p.enabled);
+            const disabled = providerCatalog.filter(p => !p.enabled);
+
+            const enabledBadges = enabled.slice(0, 8).map(p =>
+                `<span class="px-2 py-0.5 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 font-semibold whitespace-nowrap text-[11px]">${p.provider}</span>`
+            ).join('');
+
+            const disabledBadges = disabled.slice(0, 8).map(p =>
+                `<span class="px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-700 font-semibold whitespace-nowrap text-[11px]">${p.provider}</span>`
+            ).join('');
+
+            container.innerHTML = `
+                <div class="flex items-center gap-2 mb-1 overflow-x-auto pb-1 min-w-0">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap flex-shrink-0">Provider Health</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded border border-slate-200 bg-white text-slate-600 whitespace-nowrap flex-shrink-0">${enabled.length} Enabled</span>
+                    <span class="text-[10px] px-2 py-0.5 rounded border border-amber-200 bg-amber-50 text-amber-700 whitespace-nowrap flex-shrink-0">${disabled.length} Unavailable</span>
+                </div>
+                <div class="inline-flex gap-1 mb-1 overflow-x-auto pb-1 w-full" style="display: inline-flex; overflow-x: auto;">
+                    ${enabledBadges || '<span class="text-slate-400 text-xs whitespace-nowrap">No enabled providers</span>'}
+                </div>
+                ${disabled.length ? `<div class="inline-flex gap-1 mb-1 overflow-x-auto pb-1 w-full" style="display: inline-flex; overflow-x: auto;">${disabledBadges}</div>` : ''}
+                ${disabled.length ? `
+                    <div class="border-t border-slate-200 pt-1 flex items-center gap-2 overflow-x-auto pb-1 min-w-0">
+                        <span class="text-[10px] text-amber-700 whitespace-nowrap flex-shrink-0">Need more options?</span>
+                        <button onclick="showProviderSetupHelp()" class="text-[10px] font-semibold px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 whitespace-nowrap flex-shrink-0">Show Required API Keys</button>
+                    </div>
+                ` : ''}
+            `;
+        }
+
+        function setInfraCollapsed(collapsed) {
+            infraCollapsed = collapsed;
+            const content = document.getElementById('infra-content');
+            const label = document.getElementById('infra-toggle-label');
+            const icon = document.getElementById('infra-toggle-icon');
+
+            if (!content || !label || !icon) return;
+
+            content.classList.toggle('hidden', collapsed);
+            label.textContent = collapsed ? 'Expand' : 'Collapse';
+            icon.classList.toggle('rotate-180', !collapsed);
+        }
+
+        function toggleInfraPanel() {
+            setInfraCollapsed(!infraCollapsed);
+        }
+
+        function noteBenchmarkInteraction() {
+            benchmarkInteractionUntil = Date.now() + 4000;
+        }
+
+        function isBenchmarkInteractionActive() {
+            if (Date.now() < benchmarkInteractionUntil) return true;
+
+            const active = document.activeElement;
+            if (!active) return false;
+
+            const benchmarkTab = document.getElementById('tab-benchmarks');
+            if (!benchmarkTab || benchmarkTab.classList.contains('hidden')) return false;
+
+            return benchmarkTab.contains(active);
+        }
+
+        async function fetchData(url) {
+            /* GENERIC FETCH HELPER
+               Wraps fetch() with error handling
+               Used throughout for all API calls
+               Returns: JSON response or null on error */
+            try {
+                const res = await fetch(url);
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                return await res.json();
+            } catch (e) { console.error(`Error fetching ${url}:`, e); return null; }
+        }
+
+        // ---- GATEWAY ----
+        async function runGateway() {
+            /* ROUTING GATEWAY EXECUTION
+               Simulates inference request through selected governance profile
+               Displays: output, execution trace, metrics (TTFT, cost, cache)
+               Uses: /api/v1/gateway/generate endpoint */
+            const prompt = document.getElementById('gateway-prompt').value;
+            if (!prompt) return alert("Please enter a prompt.");
+            if (!selectedProfile) return alert("Please select a Target Profile above.");
+
+            const provider = document.getElementById('gateway-provider')?.value || 'Groq';
+            const modelOverride = document.getElementById('gateway-model')?.value || null;
+
+            const btn = document.getElementById('gateway-btn');
+            const spinner = document.getElementById('gateway-spinner');
+            const resultsDiv = document.getElementById('gateway-results');
+
+            btn.disabled = true;
+            spinner.classList.remove('hidden');
+            resultsDiv.classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/v1/gateway/generate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt,
+                        optimization_profile: selectedProfile,
+                        provider,
+                        model_name: modelOverride
+                    })
+                });
+                if (!response.ok) {
+                    let detail = `Gateway execution failed (${response.status})`;
+                    try {
+                        const errBody = await response.json();
+                        if (errBody && errBody.detail) {
+                            detail = typeof errBody.detail === 'string'
+                                ? errBody.detail
+                                : JSON.stringify(errBody.detail);
+                        }
+                    } catch (_) {}
+                    throw new Error(detail);
+                }
+                const data = await response.json();
+
+                document.getElementById('gateway-output').innerText = data.content;
+
+                if (data.trace && data.trace.length > 0) {
+                    document.getElementById('gateway-trace-container').classList.remove('hidden');
+                    document.getElementById('gateway-trace').innerHTML = data.trace.map(step => `
+                        <div class="relative">
+                            <span class="absolute -left-[17px] top-1 w-2.5 h-2.5 bg-indigo-500 rounded-full ring-4 ring-white"></span>
+                            <p class="text-[11px] text-slate-600 font-medium leading-relaxed">${step}</p>
+                        </div>
+                    `).join('');
+                } else {
+                    document.getElementById('gateway-trace-container').classList.add('hidden');
+                }
+
+                const cacheBadge = data.metrics.cache_hit
+                    ? `<span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 border border-emerald-200">HIT (0ms)</span>`
+                    : `<span class="bg-slate-100 text-slate-500 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200">MISS</span>`;
+
+                document.getElementById('gateway-badges').innerHTML = `
+                    <span class="bg-indigo-50 text-indigo-700 text-[10px] font-bold px-2 py-0.5 rounded border border-indigo-200 uppercase">${data.metrics.model_used}</span>
+                    ${cacheBadge}
+                    <span class="bg-white text-slate-600 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200 font-mono">TTFT: ${data.metrics.ttft_ms.toFixed(1)}ms</span>
+                    <span class="bg-white text-emerald-600 text-[10px] font-bold px-2 py-0.5 rounded border border-slate-200 font-mono">$${data.metrics.total_cost_usd.toFixed(6)}</span>
+                `;
+                resultsDiv.classList.remove('hidden');
+                await refreshObservability();
+            } catch (e) {
+                console.error("Gateway error:", e);
+                alert(e?.message || "Error connecting to gateway.");
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        function renderGatewayModelOptions() {
+            const providerSelect = document.getElementById('gateway-provider');
+            const modelSelect = document.getElementById('gateway-model');
+
+            if (!providerSelect || !modelSelect) return;
+
+            const selectedProvider = providerSelect.value;
+            const providerEntry = providerCatalog.find(p => p.provider === selectedProvider);
+            const models = providerEntry?.models || [];
+
+            modelSelect.innerHTML = [
+                '<option value="">Auto (Profile Routing)</option>',
+                ...models.map(m => `<option value="${m}">${m}</option>`)
+            ].join('');
+        }
+
+        function renderCompareModelOptions(side) {
+            const providerSelect = document.getElementById(`compare-provider-${side}`);
+            const modelSelect = document.getElementById(`compare-model-${side}`);
+
+            if (!providerSelect || !modelSelect) return;
+
+            const selectedProvider = providerSelect.value;
+            const providerEntry = providerCatalog.find(p => p.provider === selectedProvider);
+            const models = providerEntry?.models || [];
+
+            modelSelect.innerHTML = [
+                '<option value="">Auto (From Variant/Provider)</option>',
+                ...models.map(m => `<option value="${m}">${m}</option>`)
+            ].join('');
+        }
+
+        function getCompareSlotId(index) {
+            return String.fromCharCode(97 + index);
+        }
+
+        function getCompareSlotLabel(index) {
+            return `Model ${index + 1}`;
+        }
+
+        function syncCompareSlotStateFromDom() {
+            compareSlotState = Array.from({ length: compareSlotCount }, (_, index) => {
+                const slotId = getCompareSlotId(index);
+                return {
+                    provider: document.getElementById(`compare-provider-${slotId}`)?.value || 'Groq',
+                    variant: document.getElementById(`compare-variant-${slotId}`)?.value || '',
+                    model: document.getElementById(`compare-model-${slotId}`)?.value || '',
+                };
+            });
+        }
+
+        function populateCompareSlotProviders() {
+            const providerOptions = providerCatalog
+                .filter(p => p.enabled)
+                .map(p => `<option value="${p.provider}">${p.provider}</option>`)
+                .join('');
+
+            document.querySelectorAll('.compare-provider').forEach(select => {
+                const current = select.value || 'Groq';
+                select.innerHTML = providerOptions;
+                if ([...select.options].some(o => o.value === current)) {
+                    select.value = current;
+                }
+                select.onchange = (event) => {
+                    const index = Number(event.target.dataset.slotIndex);
+                    compareSlotState[index].provider = event.target.value;
+                    renderCompareSlotModelOptions(getCompareSlotId(index));
+                };
+            });
+        }
+
+        function renderCompareSlotModelOptions(slotId) {
+            const providerSelect = document.getElementById(`compare-provider-${slotId}`);
+            const modelSelect = document.getElementById(`compare-model-${slotId}`);
+            const variantSelect = document.getElementById(`compare-variant-${slotId}`);
+
+            if (!providerSelect || !modelSelect || !variantSelect) return;
+
+            const selectedProvider = providerSelect.value;
+            const providerEntry = providerCatalog.find(p => p.provider === selectedProvider);
+            const models = providerEntry?.models || [];
+
+            modelSelect.innerHTML = [
+                '<option value="">Auto (From Variant/Provider)</option>',
+                ...models.map(m => `<option value="${m}">${m}</option>`)
+            ].join('');
+
+            variantSelect.innerHTML = [
+                '<option value="">Auto (Provider Default)</option>',
+                ...(availableModels.length ? availableModels : []).map(v => `<option value="${v}">${v}</option>`)
+            ].join('');
+
+            modelSelect.onchange = (event) => {
+                const index = Number(event.target.dataset.slotIndex);
+                compareSlotState[index].model = event.target.value;
+            };
+
+            variantSelect.onchange = (event) => {
+                const index = Number(event.target.dataset.slotIndex);
+                compareSlotState[index].variant = event.target.value;
+            };
+        }
+
+        function renderCompareSlots() {
+            /* DYNAMIC MULTI-MODEL COMPARISON SLOTS
+               Generates provider/variant/model input controls for N models (2-6)
+               
+               WORKFLOW:
+               1. Read selected slot count from <select id="compare-count">
+               2. Resize compareSlotState array to match count
+               3. Render grid of slot cards with alternating colors (indigo/purple)
+               4. Each slot has 3 dropdowns:
+                  - Provider selector
+                  - Variant selector (from availableModels)
+                  - Model override (optional, from provider catalog)
+               5. Attach onchange handlers to sync compareSlotState
+               6. Pre-fill dropdowns with last selected values from compareSlotState
+               
+               GRID LAYOUT:
+               - 2 slots: 2 columns
+               - 3-4 slots: 2 columns
+               - 5-6 slots: 3 columns
+               
+               ACCENTS:
+               - Even slots: indigo borders/backgrounds
+               - Odd slots: purple borders/backgrounds
+               */
+            const container = document.getElementById('compare-slots');
+            const countSelect = document.getElementById('compare-count');
+            if (!container || !countSelect) return;
+
+            compareSlotCount = Math.max(2, Math.min(6, parseInt(countSelect.value || '2', 10)));
+            compareSlotState = compareSlotState.slice(0, compareSlotCount);
+            while (compareSlotState.length < compareSlotCount) {
+                compareSlotState.push({ provider: 'Groq', variant: '', model: '' });
+            }
+
+            const slotCols = compareSlotCount <= 2 ? 'md:grid-cols-2' : compareSlotCount <= 4 ? 'md:grid-cols-2' : 'md:grid-cols-3';
+            container.className = `grid grid-cols-1 ${slotCols} gap-3`;
+
+            container.innerHTML = compareSlotState.map((slot, index) => {
+                const slotId = getCompareSlotId(index);
+                const accentClass = index % 2 === 0
+                    ? 'border-indigo-100 bg-indigo-50/30'
+                    : 'border-purple-100 bg-purple-50/30';
+
+                return `
+                    <div class="rounded border ${accentClass} p-3">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="text-[10px] font-bold ${index % 2 === 0 ? 'text-indigo-700' : 'text-purple-700'} uppercase tracking-wide">${getCompareSlotLabel(index)}</div>
+                            <div class="text-[10px] text-slate-400">Slot ${index + 1}</div>
+                        </div>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Provider ${slotId.toUpperCase()}</label>
+                                <select data-slot-index="${index}" id="compare-provider-${slotId}" class="compare-provider w-full text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400"></select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Variant ${slotId.toUpperCase()}</label>
+                                <select data-slot-index="${index}" id="compare-variant-${slotId}" class="compare-variant w-full text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400">
+                                    <option value="">Loading models…</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Model ${slotId.toUpperCase()} Override (Optional)</label>
+                                <select data-slot-index="${index}" id="compare-model-${slotId}" class="compare-model w-full text-xs border border-slate-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-indigo-400">
+                                    <option value="">Auto (From Variant/Provider)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            populateCompareSlotProviders();
+            compareSlotState.forEach((slot, index) => {
+                const slotId = getCompareSlotId(index);
+                const providerEl = document.getElementById(`compare-provider-${slotId}`);
+                const variantEl = document.getElementById(`compare-variant-${slotId}`);
+                const modelEl = document.getElementById(`compare-model-${slotId}`);
+
+                if (providerEl) providerEl.value = slot.provider || 'Groq';
+                renderCompareSlotModelOptions(slotId);
+                if (variantEl) variantEl.value = slot.variant || '';
+                if (modelEl) modelEl.value = slot.model || '';
+            });
+        }
+
+        function renderCompareResultsGrid(results) {
+            /* COMPARISON RESULTS GRID RENDERER
+               Displays inference outputs side-by-side for all compared models
+               
+               INPUT: results array of comparison objects
+               {
+                 slot_name: "Model 1" | "Model 2" | "Model 3" ...
+                 variant: {
+                   ttft_ms, tpot_ms, content, vram_required_gb, accuracy_retention,
+                   is_outlier_sensitive, input_tokens, output_tokens, cache_hit,
+                   total_cost_usd, ...
+                 }
+               }
+               
+               LAYOUT:
+               - 1-2 results: Grid-cols-1 md:grid-cols-2 (two columns)
+               - 3+ results: Grid-cols-1 md:grid-cols-2 xl:grid-cols-3 (three columns)
+               
+               EACH CARD CONTAINS:
+               
+               Header (color-coded by slot):
+               - Slot name badge (Model 1, Model 2, etc.)
+               - Quick metrics: TTFT, TPOT, cost in small boxes
+               
+               Body:
+               - 3x2 KPI grid: VRAM, Accuracy, Outlier Risk
+               - Output box: Scrollable text area (max-h-[200px])
+               - Footer: Token counts (input/output) and cache status
+               
+               COLOR SCHEME:
+               - Even slots (0, 2, 4): Indigo accents
+               - Odd slots (1, 3, 5): Purple accents
+               
+               INTERACTIVITY:
+               - Fully scrollable output containers
+               - Suitable for long model outputs
+               */
+            const container = document.getElementById('compare-results-grid');
+            if (!container) return;
+
+            if (!results.length) {
+                container.innerHTML = '<div class="text-xs text-slate-400 italic p-2">No comparison results available.</div>';
+                return;
+            }
+
+            container.className = `grid grid-cols-1 ${results.length > 2 ? 'md:grid-cols-2 xl:grid-cols-3' : 'md:grid-cols-2'} gap-4`;
+            container.innerHTML = results.map((entry, index) => {
+                const v = entry.variant;
+                const accent = index % 2 === 0 ? 'bg-indigo-50 border-indigo-100 text-indigo-800' : 'bg-purple-50 border-purple-100 text-purple-800';
+                
+                // NEW: Agent metrics display
+                const agentCalls = v.agent_calls ?? 0;
+                const agentCost = v.agent_total_cost_usd ?? 0;
+                const agentBadge = agentCalls > 0 ? `<span class="bg-purple-50 border border-purple-200 text-purple-700 px-2 py-0.5 rounded text-[9px] font-bold">Agent: ${agentCalls} calls • $${agentCost.toFixed(4)}</span>` : '';
+                
+                return `
+                    <div class="rounded-lg border border-slate-200 overflow-hidden">
+                        <div class="${accent} border-b px-4 py-2.5 flex items-center justify-between">
+                            <span class="font-bold text-xs uppercase tracking-wide">${entry.slot_name}</span>
+                            <div class="flex gap-2 text-[10px] font-mono">
+                                <span class="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded">TTFT: ${v.ttft_ms?.toFixed(1) ?? '—'}ms</span>
+                                <span class="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded">TPOT: ${v.tpot_ms?.toFixed(1) ?? '—'}ms</span>
+                                <span class="bg-emerald-50 border border-emerald-100 text-emerald-700 px-2 py-0.5 rounded">$${v.total_cost_usd?.toFixed(6) ?? '—'}</span>
+                            </div>
+                        </div>
+                        <div class="p-4">
+                            <div class="grid grid-cols-3 gap-2 mb-3 text-[10px]">
+                                <div class="bg-slate-50 rounded p-2 text-center border border-slate-100">
+                                    <div class="font-bold text-slate-500 uppercase mb-0.5">VRAM</div>
+                                    <div class="font-mono font-semibold text-slate-800">${v.vram_required_gb ? `${v.vram_required_gb} GB` : '—'}</div>
+                                </div>
+                                <div class="bg-slate-50 rounded p-2 text-center border border-slate-100">
+                                    <div class="font-bold text-slate-500 uppercase mb-0.5">Accuracy</div>
+                                    <div class="font-mono font-semibold text-blue-600">${v.accuracy_retention ? `${(v.accuracy_retention * 100).toFixed(0)}%` : '—'}</div>
+                                </div>
+                                <div class="bg-slate-50 rounded p-2 text-center border border-slate-100">
+                                    <div class="font-bold text-slate-500 uppercase mb-0.5">Outlier Risk</div>
+                                    <div class="font-semibold">${v.is_outlier_sensitive ? '<span class="text-amber-600 font-bold">HIGH</span>' : '<span class="text-emerald-600 font-bold">SAFE</span>'}</div>
+                                </div>
+                            </div>
+                            ${agentBadge ? `<div class="mb-3 flex gap-2">${agentBadge}</div>` : ''}
+                            <div class="text-[10px] text-slate-500 mb-1 uppercase font-bold tracking-wide">Output</div>
+                            <div class="bg-slate-50 p-3 rounded border border-slate-200 text-slate-700 whitespace-pre-wrap text-xs custom-scrollbar overflow-y-auto min-h-[80px] max-h-[200px]">${v.content || '—'}</div>
+                            <div class="mt-2 text-[10px] text-slate-400 flex justify-between items-center">
+                                <span>Tokens: ${v.input_tokens ?? '—'} In / ${v.output_tokens ?? '—'} Out</span>
+                                <span class="font-mono">${v.cache_hit ? 'Cache: HIT' : 'Cache: MISS'}</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadProviderCatalog() {
+            const data = await fetchData('/api/v1/gateway/providers');
+            const providerSelect = document.getElementById('gateway-provider');
+
+            if (!providerSelect || !data?.providers) return;
+
+            providerCatalog = data.providers;
+            renderProviderHealthStrip();
+            renderBenchmarkProviderOptions();
+
+            const enabledProviders = providerCatalog
+                .filter(p => p.enabled)
+                .map(p => p.provider);
+
+            const providerOptions = enabledProviders
+                .map(p => `<option value="${p}">${p}</option>`)
+                .join('');
+
+            providerSelect.innerHTML = providerOptions;
+
+            if (!providerSelect.value && providerCatalog.length) {
+                const firstEnabled = providerCatalog.find(p => p.enabled);
+                providerSelect.value = firstEnabled ? firstEnabled.provider : providerCatalog[0].provider;
+            }
+
+            providerSelect.onchange = renderGatewayModelOptions;
+            renderGatewayModelOptions();
+            renderCompareSlots();
+
+            // Keep Model Catalog provider filter/cards in sync with runtime providers.
+            refreshRegistryCatalog();
+        }
+
+        /* ========================================================
+           GATEWAY SIMULATOR & ROUTING TEST
+           - Simulate inference requests with selected profile
+           - Execute via /api/v1/gateway/generate
+           - Display metrics: TTFT, cost, cache hit/miss
+           - Show execution trace of routing pipeline
+           ======================================================== */
+
+        // ---- A/B COMPARE ----
+        async function runCompare() {
+            /* BATCH MULTI-MODEL COMPARISON
+               Executes concurrent inference on 2-6 models and displays results
+               
+               WORKFLOW:
+               1. Validate: Prompt is required and not empty
+               2. Sync DOM: collectCompareSlotStateFromDom() reads all slot dropdowns
+               3. Build targets: Map each slot to CompareTarget object:
+                  {
+                    slot_name: "Model 1", "Model 2", etc.
+                    variant_id: selected variant (quantized model ID)
+                    provider: LLM provider (Groq, Gemini, etc.)
+                    model_name: optional model override from provider
+                  }
+               4. Filter: Remove slots without variant_id OR model_name
+               5. Validate: Need at least 2 targets to compare
+               6. API Call: POST /api/v1/experiments/compare-batch
+                  - Body: { prompt, optimization_profile: 'balanced', targets }
+                  - Concurrent execution of all targets
+               7. Display Results:
+                  - renderCompareResultsGrid(): Create result card for each model
+                  - Show TTFT, TPOT, cost, output, accuracy, outlier risk
+                  - Show delta summary bar: Fastest model, cheapest model, model count
+               8. Refresh observability: Update KPIs and telemetry
+               
+               ERROR HANDLING:
+               - HTTP error: Show response status and parse detail field
+               - Validation error: Show as alert
+               - Network error: Show generic error message
+               
+               LOADING STATE:
+               - setCompareLoading(true/false) disables buttons and shows spinner
+               - Affects both main button and sticky bottom-right action bar
+               */
+            const prompt = document.getElementById('compare-prompt').value.trim();
+            if (!prompt) return alert('Please enter a prompt for comparison.');
+
+            syncCompareSlotStateFromDom();
+            const targets = compareSlotState
+                .map((slot, index) => ({
+                    slot_name: getCompareSlotLabel(index),
+                    variant_id: slot.variant,
+                    provider: slot.provider || 'Groq',
+                    model_name: slot.model || null,
+                }))
+                .filter(target => target.variant_id || target.model_name);
+
+            if (targets.length < 2) {
+                return alert('Please choose at least two models to compare.');
+            }
+
+            setCompareLoading(true);
+            document.getElementById('compare-results').classList.add('hidden');
+            document.getElementById('compare-delta').classList.add('hidden');
+
+            try {
+                const response = await fetch('/api/v1/experiments/compare-batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        prompt,
+                        optimization_profile: 'balanced',
+                        targets,
+                    })
+                });
+                if (!response.ok) {
+                    let detail = `Compare failed (${response.status})`;
+                    try {
+                        const errBody = await response.json();
+                        if (errBody && errBody.detail) {
+                            detail = typeof errBody.detail === 'string'
+                                ? errBody.detail
+                                : JSON.stringify(errBody.detail);
+                        }
+                    } catch (_) {}
+                    throw new Error(detail);
+                }
+                const data = await response.json();
+
+                renderCompareResultsGrid(data.comparisons || []);
+
+                if (data.summary) {
+                    document.getElementById('compare-delta').innerHTML = `
+                        <span class="font-bold text-slate-300 uppercase tracking-wide text-[10px]">Summary</span>
+                        <span>Models: ${data.summary.total_models}</span>
+                        <span>Fastest: ${data.summary.fastest_model} (${Number(data.summary.fastest_ttft_ms || 0).toFixed(1)}ms)</span>
+                        <span>Cheapest: ${data.summary.cheapest_model} ($${Number(data.summary.cheapest_cost_usd || 0).toFixed(6)})</span>
+                    `;
+                    document.getElementById('compare-delta').classList.remove('hidden');
+                }
+
+                document.getElementById('compare-results').classList.remove('hidden');
+                await refreshObservability();
+            } catch (e) {
+                console.error('Compare error:', e);
+                alert(e?.message || 'Error running comparison.');
+            } finally {
+                setCompareLoading(false);
+            }
+        }
+
+        function buildDerivedInsights(metrics) {
+            /* TELEMETRY-DRIVEN OPTIMIZATION INSIGHTS
+               Analyzes live metrics and derives actionable recommendations
+               
+               INPUT: metrics object from /api/v1/dashboard/metrics
+               OUTPUT: Array of insight objects { type, recommendation }
+               
+               INSIGHT RULES (applied in order):
+               
+               1. LATENCY TUNING (if TTFT > 1200ms)
+                  - Suggests lighter models for short prompts
+                  - Recommends increasing cache coverage
+               
+               2. CACHE EXPANSION (if cache_hit_rate < 30% AND requests >= 5)
+                  - Suggests lowering semantic similarity threshold
+                  - Recommends prompt normalization
+               
+               3. CACHE EFFICIENCY (if cache_hit_rate >= 70% AND requests >= 5)
+                  - Positive reinforcement: "Current cache policy is working well"
+               
+               4. SPEND GOVERNANCE (if total_cost > $0.0005 AND requests >= 8)
+                  - Alerts to routing low-complexity to smaller models
+                  - Suggests stricter cost-saver profile
+               
+               5. INFRASTRUCTURE LOAD (if overloaded nodes > 0)
+                  - Suggests load rebalancing across providers
+                  - Temporary traffic shifting recommended
+               
+               6. PROVIDER RESILIENCE (if disabled_providers > 0)
+                  - Recommends enabling additional providers
+                  - Improves fallback and outage resilience
+               
+               FALLBACK: If no rules match but requests > 0, show "Stable Operating Window"
+               
+               DEDUPLICATION: Applied in refreshAdvisorInsights() to merge with backend insights
+               */
+            const summary = metrics?.summary || {};
+            const infra = metrics?.infrastructure || {};
+            const derived = [];
+
+            const totalReq = Number(summary.total_requests || 0);
+            const avgTtft = Number(summary.avg_ttft_ms || 0);
+            const cacheRate = Number(summary.cache_hit_rate_percent || 0);
+            const totalCost = Number(summary.total_cost_usd || 0);
+
+            if (totalReq > 0 && avgTtft > 1200) {
+                derived.push({
+                    type: 'Latency Tuning Opportunity',
+                    recommendation: `Average TTFT is ${avgTtft.toFixed(1)}ms. Consider lighter models for short prompts and increase cache coverage for repeated requests.`
+                });
+            }
+
+            if (totalReq >= 5 && cacheRate < 30) {
+                derived.push({
+                    type: 'Cache Expansion Suggestion',
+                    recommendation: `Cache hit rate is ${cacheRate.toFixed(1)}%. Lower semantic threshold slightly and normalize prompts to increase hit ratio.`
+                });
+            }
+
+            if (totalReq >= 5 && cacheRate >= 70) {
+                derived.push({
+                    type: 'Strong Cache Efficiency',
+                    recommendation: `Cache hit rate is ${cacheRate.toFixed(1)}%. Current cache policy is working well for both latency and spend.`
+                });
+            }
+
+            if (totalReq >= 8 && totalCost > 0.0005) {
+                derived.push({
+                    type: 'Spend Governance Alert',
+                    recommendation: `Total spend has reached $${totalCost.toFixed(6)}. Route low-complexity workloads to smaller models or stricter cost-saver profile.`
+                });
+            }
+
+            const overloaded = (infra.nodes || []).filter(n => n.status === 'overloaded').length;
+            if (overloaded > 0) {
+                derived.push({
+                    type: 'Infrastructure Load Balancing',
+                    recommendation: `${overloaded} node(s) are overloaded. Reduce heavy-model concurrency or shift traffic to alternate providers temporarily.`
+                });
+            }
+
+            const disabledProviders = providerCatalog.filter(p => !p.enabled).length;
+            if (providerCatalog.length > 0 && disabledProviders > 0) {
+                derived.push({
+                    type: 'Provider Resilience Opportunity',
+                    recommendation: `${disabledProviders} provider(s) are unavailable. Enabling additional healthy providers improves fallback and outage resilience.`
+                });
+            }
+
+            if (!derived.length && totalReq > 0) {
+                derived.push({
+                    type: 'Stable Operating Window',
+                    recommendation: 'Latency, cache, and infrastructure indicators are currently healthy. Maintain current routing profile and continue monitoring drift.'
+                });
+            }
+
+            return derived;
+        }
+
+        async function refreshAdvisorInsights() {
+            const advisor = await fetchData('/api/v1/advisor/insights');
+            const metrics = latestDashboardMetrics || await fetchData('/api/v1/dashboard/metrics');
+            const advContainer = document.getElementById('advisor-insights');
+
+            if (!advContainer) return;
+
+            const backendInsights = advisor?.ai_recommendations || [];
+            const derivedInsights = buildDerivedInsights(metrics);
+
+            const allInsights = [...backendInsights, ...derivedInsights].filter((insight, idx, arr) => {
+                const key = `${insight.type}::${insight.recommendation}`;
+                return arr.findIndex(x => `${x.type}::${x.recommendation}` === key) === idx;
+            });
+
+            if (allInsights.length) {
+                advContainer.innerHTML = allInsights.map((r, idx) => `
+                    <div class="bg-white p-3 rounded border border-emerald-100/60 shadow-sm text-xs">
+                        <div class="flex items-center justify-between gap-2 mb-1">
+                            <p class="font-bold text-emerald-800 uppercase tracking-wide">${r.type}</p>
+                            ${idx >= backendInsights.length ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded border border-blue-200 bg-blue-50 text-blue-700 uppercase">Live Telemetry</span>' : ''}
+                        </div>
+                        <p class="text-emerald-700">${r.recommendation}</p>
+                    </div>
+                `).join('');
+                return;
+            }
+
+            if (advisor?.message) {
+                advContainer.innerHTML = `<div class="bg-white p-3 rounded border border-emerald-100 text-xs text-emerald-700">${advisor.message}</div>`;
+            } else {
+                advContainer.innerHTML = '<div class="bg-white p-3 rounded border border-emerald-100 text-xs text-emerald-700">No optimization insights available yet. Run traffic to generate recommendations.</div>';
+            }
+        }
+
+        async function refreshObservability() {
+            if (observabilityRefreshInFlight) return;
+
+            observabilityRefreshInFlight = true;
+            try {
+                await Promise.all([
+                    initDashboard(),
+                    refreshAdvisorInsights()
+                ]);
+            } finally {
+                observabilityRefreshInFlight = false;
+            }
+        }
+
+        /* ========================================================
+           OPTIMIZATION ADVISOR & INSIGHTS
+           - Backend AI recommendations (from /api/v1/advisor/insights)
+           - Derived telemetry-based insights (latency, cache, cost, infra)
+           - Deduplication of insights
+           - Live metric collection and analysis
+           ======================================================== */
+
+        function populateCompareSelects() {
+            const selA = document.getElementById('compare-variant-a');
+            const selB = document.getElementById('compare-variant-b');
+            if (!availableModels.length) return;
+            const opts = availableModels.map(m => `<option value="${m}">${m}</option>`).join('');
+            selA.innerHTML = opts;
+            selB.innerHTML = opts;
+            if (availableModels.length > 1) selB.selectedIndex = 1;
+        }
+
+        function buildRuntimeCatalogEntries() {
+            if (!providerCatalog.length) return [];
+
+            const entries = [];
+            providerCatalog.forEach(provider => {
+                if (!provider.enabled) return;
+
+                const models = provider.models?.length ? provider.models : ['auto'];
+                models.forEach(model => {
+                    entries.push({
+                        variant_id: `${provider.provider.toLowerCase().replace(/\s+/g, '-') || 'provider'}::${model}`,
+                        base_model: model,
+                        provider: provider.provider,
+                        quantization: { precision: 'API' },
+                        quantization_level: 'API',
+                        vram_required_gb: 0,
+                        cost_multiplier: 1,
+                        accuracy_retention: 1,
+                        is_outlier_sensitive: false,
+                    });
+                });
+            });
+
+            return entries;
+        }
+
+        function getProviderState(providerName) {
+            const p = providerCatalog.find(x => x.provider === providerName);
+            if (!p) {
+                return {
+                    enabled: true,
+                    reason: null,
+                    label: 'Unknown',
+                    classes: 'bg-slate-50 text-slate-600 border-slate-200'
+                };
+            }
+
+            if (p.enabled) {
+                return {
+                    enabled: true,
+                    reason: null,
+                    label: 'Healthy',
+                    classes: 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                };
+            }
+
+            return {
+                enabled: false,
+                reason: p.reason,
+                label: 'Setup Needed',
+                classes: 'bg-amber-50 text-amber-700 border-amber-200'
+            };
+        }
+
+        function computeFitScore(v, preset = 'chat') {
+            /* MODEL FIT SCORING ENGINE
+               Calculates quantitative fit score (1-99) for a model variant
+               
+               INPUTS:
+               - v: variant object with accuracy, vram, cost_multiplier, provider status, outlier_sensitivity
+               - preset: optimization target (chat, reasoning, extraction, balanced)
+               
+               SCORING FORMULA:
+               1. Extract sub-scores from variant properties:
+                  - accuracy (0-100): from accuracy_retention * 100
+                  - cost (0-100): from 120 - (cost_multiplier * 60)
+                  - vram (0-100): from 100 - (vram_gb * 2)
+                  - reliability (0-100): 100 if provider enabled, 35 if disabled
+               
+               2. Apply preset-specific weights:
+                  - chat: 25% accuracy, 30% cost, 15% vram, 30% reliability
+                  - reasoning: 50% accuracy, 10% cost, 10% vram, 30% reliability
+                  - extraction: 15% accuracy, 35% cost, 25% vram, 25% reliability
+                  - balanced: 35% accuracy, 25% cost, 15% vram, 25% reliability
+               
+               3. Calculate weighted sum and apply penalties:
+                  - Subtract 14 points if outlier_sensitive=true
+                  - Clamp final score to range [1, 99]
+               
+               USAGE: Used by registry card sorting and filter presets
+               */
+            const providerState = getProviderState(v.provider || '');
+            const accuracy = Math.max(0, Math.min(100, (v.accuracy_retention ?? 1) * 100));
+            const vram = Math.max(0, v.vram_required_gb ?? 0);
+            const costMul = Math.max(0, v.cost_multiplier ?? 1);
+
+            const costScore = Math.max(0, Math.min(100, 120 - (costMul * 60)));
+            const vramScore = Math.max(0, Math.min(100, 100 - (vram * 2)));
+            const reliability = providerState.enabled ? 100 : 35;
+            const riskPenalty = v.is_outlier_sensitive ? 14 : 0;
+
+            const weights = {
+                chat: { a: 0.25, c: 0.30, v: 0.15, r: 0.30 },
+                reasoning: { a: 0.50, c: 0.10, v: 0.10, r: 0.30 },
+                extraction: { a: 0.15, c: 0.35, v: 0.25, r: 0.25 },
+                balanced: { a: 0.35, c: 0.25, v: 0.15, r: 0.25 },
+            }[preset] || { a: 0.35, c: 0.25, v: 0.15, r: 0.25 };
+
+            const raw =
+                (accuracy * weights.a)
+                + (costScore * weights.c)
+                + (vramScore * weights.v)
+                + (reliability * weights.r)
+                - riskPenalty;
+
+            return Math.max(1, Math.min(99, Math.round(raw)));
+        }
+
+        function setCompareSide(side, item) {
+            const providerSel = document.getElementById(`compare-provider-${side}`);
+            const variantSel = document.getElementById(`compare-variant-${side}`);
+            const modelSel = document.getElementById(`compare-model-${side}`);
+
+            if (!providerSel || !variantSel || !modelSel || !item) return;
+
+            if ([...providerSel.options].some(o => o.value === item.provider)) {
+                providerSel.value = item.provider;
+            }
+
+            renderCompareModelOptions(side);
+
+            if ([...variantSel.options].some(o => o.value === item.variant_id)) {
+                variantSel.value = item.variant_id;
+            } else {
+                variantSel.value = '';
+            }
+
+            if ([...modelSel.options].some(o => o.value === item.base_model)) {
+                modelSel.value = item.base_model;
+            } else {
+                modelSel.value = '';
+            }
+        }
+
+        function quickCompareFromCard(variantId) {
+            const target = lastRenderedRegistryItems.find(v => v.variant_id === variantId);
+            if (!target) return;
+
+            const fallbackB = lastRenderedRegistryItems.find(v => v.variant_id !== variantId);
+
+            switchTab('finops');
+            setCompareSide('a', target);
+            if (fallbackB) {
+                setCompareSide('b', fallbackB);
+            }
+
+            const prompt = document.getElementById('compare-prompt');
+            if (prompt && !prompt.value.trim()) {
+                prompt.value = 'Compare the quality, latency, and cost trade-offs for this task in less than 120 words.';
+            }
+
+            const panel = document.getElementById('compare-panel');
+            if (panel) {
+                panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+        }
+
+        function renderRegistryCards() {
+            /* MODEL CATALOG FILTERING & RENDERING
+               Applies filters and sorts model registry, then renders discovery cards
+               
+               FILTER INPUTS (read from form controls):
+               1. registry-search: Keyword search on variant_id OR base_model
+               2. registry-provider-filter: Provider selection (dropdown)
+               3. registry-fit-preset: Optimization preset (chat|reasoning|extraction|balanced)
+               4. registry-sort: Sort order (fit_desc|accuracy_desc|vram_asc|cost_asc)
+               
+               PROCESSING:
+               1. Clone registryData array
+               2. Apply keyword filter (case-insensitive substring match)
+               3. Apply provider filter (skip if "all" selected)
+               4. Compute fit score for each variant using selected preset
+               5. Sort by selected order (highest fit first by default)
+               6. Store filtered results in lastRenderedRegistryItems
+               
+               RENDERING (each card shows):
+               - Header: Variant ID, Base Model, Provider
+               - Badges: Quantization precision, provider health, fit score
+               - Specs: VRAM, cost factor, accuracy %, outlier risk
+               - CTA Button: "Use In A/B Compare" → quickCompareFromCard()
+               
+               EMPTY STATE:
+               - If no matches: "No models match the selected filters."
+               - User can adjust filters and try again
+               
+               PERF NOTE: Called every time a filter changes (input, change events)
+               Consider debouncing if registry grows very large (100+ models)
+               */
+            const regContent = document.getElementById('registry-content');
+            const query = (document.getElementById('registry-search')?.value || '').toLowerCase().trim();
+            const providerFilter = document.getElementById('registry-provider-filter')?.value || 'all';
+            const fitPreset = document.getElementById('registry-fit-preset')?.value || 'chat';
+            const sortBy = document.getElementById('registry-sort')?.value || 'accuracy_desc';
+
+            if (!regContent) return;
+
+            let items = [...registryData];
+
+            if (query) {
+                items = items.filter(v =>
+                    (v.variant_id || '').toLowerCase().includes(query)
+                    || (v.base_model || '').toLowerCase().includes(query)
+                );
+            }
+
+            if (providerFilter !== 'all') {
+                items = items.filter(v => (v.provider || 'unknown') === providerFilter);
+            }
+
+            items = items.map(v => ({
+                ...v,
+                _fit_score: computeFitScore(v, fitPreset),
+            }));
+
+            items.sort((a, b) => {
+                if (sortBy === 'fit_desc') return (b._fit_score || 0) - (a._fit_score || 0);
+                if (sortBy === 'vram_asc') return (a.vram_required_gb || 0) - (b.vram_required_gb || 0);
+                if (sortBy === 'cost_asc') return (a.cost_multiplier || 0) - (b.cost_multiplier || 0);
+                return (b.accuracy_retention || 0) - (a.accuracy_retention || 0);
+            });
+
+            lastRenderedRegistryItems = [...items];
+
+            if (!items.length) {
+                regContent.innerHTML = '<div class="text-xs text-slate-400 italic p-2">No models match the selected filters.</div>';
+                return;
+            }
+
+            regContent.innerHTML = items.map(v => {
+                const isRisky = v.is_outlier_sensitive;
+                const providerState = getProviderState(v.provider || '');
+                return `
+                    <div class="bg-white rounded-lg border border-slate-200 p-5 shadow-sm hover:shadow transition flex flex-col text-xs">
+                        <div class="flex justify-between items-start mb-4">
+                            <div>
+                                <h3 class="font-bold text-slate-900 text-sm">${v.variant_id}</h3>
+                                <p class="text-[10px] text-slate-500 font-mono mt-0.5">${v.base_model}</p>
+                                <p class="text-[10px] text-slate-400 mt-0.5">${v.provider || 'Unknown Provider'}</p>
+                            </div>
+                            <div class="flex flex-col items-end gap-1">
+                                <span class="px-2 py-0.5 text-[9px] font-bold rounded bg-indigo-50 text-indigo-600 border border-indigo-100">${v.quantization?.precision || v.quantization_level || 'N/A'}</span>
+                                <span class="px-2 py-0.5 text-[9px] font-bold rounded border ${providerState.classes}">${providerState.label}</span>
+                                <span class="px-2 py-0.5 text-[9px] font-bold rounded border border-blue-200 bg-blue-50 text-blue-700">Fit ${v._fit_score}/100</span>
+                            </div>
+                        </div>
+                        <div class="space-y-3 mt-auto">
+                            <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                                <span class="text-slate-500">VRAM</span>
+                                <span class="font-mono font-medium text-slate-800">${v.vram_required_gb} GB</span>
+                            </div>
+                            <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                                <span class="text-slate-500">Cost Factor</span>
+                                <span class="font-mono font-medium text-emerald-600">${v.cost_multiplier}x</span>
+                            </div>
+                            <div class="flex justify-between items-center border-b border-slate-100 pb-1.5">
+                                <span class="text-slate-500">Accuracy</span>
+                                <span class="font-mono font-medium text-blue-600">${(v.accuracy_retention * 100).toFixed(0)}%</span>
+                            </div>
+                            <div class="flex justify-between items-center">
+                                <span class="text-slate-500">Outlier Risk</span>
+                                <span class="${isRisky ? 'text-amber-600 bg-amber-50' : 'text-emerald-600 bg-emerald-50'} px-1.5 py-0.5 rounded text-[9px] font-bold">${isRisky ? 'HIGH' : 'SAFE'}</span>
+                            </div>
+                        </div>
+                        <div class="mt-4 pt-3 border-t border-slate-100">
+                            <button onclick="quickCompareFromCard('${v.variant_id}')" class="w-full text-[10px] font-semibold px-2 py-1.5 rounded border border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100">Use In A/B Compare</button>
+                        </div>
+                    </div>`;
+            }).join('');
+        }
+
+        async function refreshRegistryCatalog() {
+            const registry = await fetchData('/api/v1/experiments/variants');
+            if (!registry || !registry.variants) return;
+
+            const runtimeEntries = buildRuntimeCatalogEntries();
+            const dedupe = new Map();
+
+            [...registry.variants, ...runtimeEntries].forEach(v => {
+                const key = `${v.provider || 'unknown'}::${v.base_model || v.variant_id || 'model'}`;
+                if (!dedupe.has(key)) {
+                    dedupe.set(key, v);
+                }
+            });
+
+            registryData = Array.from(dedupe.values());
+            availableModels = [...new Set(registry.variants.map(v => v.variant_id))];
+            populateCompareSelects();
+
+            const providerFilter = document.getElementById('registry-provider-filter');
+            if (providerFilter) {
+                const providers = ['all', ...new Set(
+                    registryData.map(v => v.provider || 'unknown')
+                )];
+                const previous = providerFilter.value || 'all';
+                providerFilter.innerHTML = providers.map(p =>
+                    p === 'all'
+                        ? '<option value="all">All Providers</option>'
+                        : `<option value="${p}">${p}</option>`
+                ).join('');
+                providerFilter.value = providers.includes(previous) ? previous : 'all';
+            }
+
+            const stamp = document.getElementById('registry-last-updated');
+            if (stamp) {
+                stamp.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+            }
+
+            renderRegistryCards();
+        }
+
+        /* ========================================================
+           GOVERNANCE & POLICY MANAGEMENT
+           - Profile selection and switching
+           - Inline policy editing (temperature, tokens, features)
+           - Profile-to-gateway routing integration
+           - Feature flags: cache, compression, agentic loops
+           ======================================================== */
+
+        // ---- GOVERNANCE ----
+        async function loadGovernanceProfiles() {
+            const res = await fetchData('/api/v1/governance/profiles');
+            if (res && res.profiles) {
+                governanceState = Array.isArray(res.profiles) ? res.profiles : Object.values(res.profiles);
+                if (!selectedProfile && governanceState.length) selectedProfile = governanceState[0].profile_name;
+                renderProfileSelector();
+                renderInlinePolicy();
+                renderBenchmarkProfileOptions();
+            }
+        }
+
+        function renderProfileSelector() {
+            /* GOVERNANCE PROFILE SELECTOR CARDS
+               Renders clickable cards for each governance profile
+               
+               DATA SOURCE: governanceState array from /api/v1/governance/profiles
+               
+               EACH CARD DISPLAYS:
+               - Profile name (capitalized, underscores → spaces)
+               - Fallback model (for auto-routing)
+               - Feature flag badges:
+                 * "Cache ON/OFF" (emerald or slate)
+                 * "Agent" if agentic loop enabled (purple)
+                 * "Compress" if prompt compression enabled (blue)
+               
+               INTERACTION:
+               - Click card → selectProfile(profile_name)
+               - Updates: selectedProfile variable
+               - Triggers: renderInlinePolicy() to show policy editor
+               - Highlights selected card with indigo border + background
+               
+               STYLING:
+               - Selected: border-indigo-500, bg-indigo-50/50, text-indigo-900
+               - Unselected: border-slate-200, hover: border-indigo-400
+               - Flexible layout: flex-1 with min-w-[160px] for responsive grid
+               
+               FEATURE FLAGS DERIVED FROM:
+               - profile.features.enable_cache (or profile.enable_cache fallback)
+               - profile.features.enable_agentic_loop
+               - profile.features.enable_prompt_compression
+               */
+            const row = document.getElementById('profile-selector-row');
+            row.innerHTML = governanceState.map(profile => {
+                const key = profile.profile_name;
+                const title = key.charAt(0).toUpperCase() + key.slice(1).replace('_', ' ');
+                const cacheOn = profile.features?.enable_cache ?? profile.enable_cache;
+                const agentOn = profile.features?.enable_agentic_loop ?? profile.enable_agentic_loop;
+                const compressOn = profile.features?.enable_prompt_compression ?? profile.enable_prompt_compression;
+                const model = profile.routing?.fallback_model || profile.fallback_model || '—';
+                const isSelected = key === selectedProfile;
+
+                const badges = [
+                    cacheOn ? '<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">Cache ON</span>' : '<span class="text-[9px] font-bold text-slate-400 bg-slate-50 border border-slate-100 px-1.5 py-0.5 rounded">Cache OFF</span>',
+                    agentOn ? '<span class="text-[9px] font-bold text-purple-600 bg-purple-50 border border-purple-100 px-1.5 py-0.5 rounded">Agent</span>' : '',
+                    compressOn ? '<span class="text-[9px] font-bold text-blue-600 bg-blue-50 border border-blue-100 px-1.5 py-0.5 rounded">Compress</span>' : ''
+                ].filter(Boolean).join('');
+
+                return `
+                <div onclick="selectProfile('${key}')" class="profile-card cursor-pointer rounded-lg border bg-white p-4 min-w-[160px] flex-1 ${isSelected ? 'selected border-indigo-500 bg-indigo-50/50' : 'border-slate-200'}">
+                    <div class="font-bold text-sm ${isSelected ? 'text-indigo-900' : 'text-slate-800'} mb-1">${title}</div>
+                    <div class="font-mono text-[10px] text-slate-500 mb-2">${model}</div>
+                    <div class="flex flex-wrap gap-1">${badges}</div>
+                </div>`;
+            }).join('');
+        }
+
+        function selectProfile(key) {
+            selectedProfile = key;
+            editingProfile = null;
+            renderProfileSelector();
+            renderInlinePolicy();
+            document.getElementById('inline-policy-panel').classList.remove('hidden');
+        }
+
+        function renderInlinePolicy() {
+            if (!selectedProfile) return;
+            const profile = governanceState.find(p => p.profile_name === selectedProfile);
+            if (!profile) return;
+            const key = profile.profile_name;
+            const panel = document.getElementById('inline-policy-panel');
+            panel.classList.remove('hidden');
+
+            if (editingProfile === key) {
+                // EDIT MODE
+                const fallbackModel = profile.routing?.fallback_model || profile.fallback_model || '';
+                const modelOptions = availableModels.map(m => `<option value="${m}" ${fallbackModel === m ? 'selected' : ''}>${m}</option>`).join('');
+                
+                // NEW: Agent control fields
+                const agentEnabled = profile.features?.enable_agentic_loop ?? profile.enable_agentic_loop;
+                const maxCalls = profile.agent?.max_calls_per_session ?? 20;
+                const maxCost = profile.agent?.max_cost_per_session_usd ?? 0.50;
+                const maxDuration = profile.agent?.max_duration_seconds ?? 300;
+
+                document.getElementById('policy-display-or-edit').innerHTML = `
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Target Model</label>
+                        <select id="edit-model-${key}" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">${modelOptions}</select>
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Temperature</label>
+                        <input type="number" step="0.1" min="0" max="2" id="edit-temp-${key}" value="${profile.runtime?.temperature ?? 0.7}" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                    </div>
+                    <div>
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Max Tokens</label>
+                        <input type="number" id="edit-tokens-${key}" value="${profile.runtime?.max_tokens ?? 1024}" class="w-full text-xs border border-slate-300 rounded p-2 outline-none bg-slate-50 focus:ring-1 focus:ring-indigo-400">
+                    </div>
+                    <div class="flex flex-col gap-2 justify-center">
+                        <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">Feature Flags</label>
+                        ${createToggleUI(`edit-cache-${key}`, 'Semantic Cache', profile.features?.enable_cache ?? profile.enable_cache)}
+                        ${createToggleUI(`edit-compress-${key}`, 'Prompt Compress', profile.features?.enable_prompt_compression ?? profile.enable_prompt_compression)}
+                        ${createToggleUI(`edit-agent-${key}`, 'Agentic Loop', agentEnabled)}
+                    </div>
+                </div>
+                
+                <!-- NEW: Agent Budget Controls Section -->
+                <div class="mt-4 pt-4 border-t border-slate-100">
+                    <div class="text-[10px] font-bold text-purple-600 uppercase tracking-wide mb-3">Agent Budget Controls</div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 bg-purple-50/50 p-3 rounded border border-purple-100">
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1.5">Max Calls/Session</label>
+                            <input type="number" id="edit-agent-calls-${key}" value="${maxCalls}" class="w-full text-xs border border-purple-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-purple-400">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1.5">Max Cost (USD)</label>
+                            <input type="number" step="0.01" id="edit-agent-cost-${key}" value="${maxCost}" class="w-full text-xs border border-purple-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-purple-400">
+                        </div>
+                        <div>
+                            <label class="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1.5">Max Duration (s)</label>
+                            <input type="number" id="edit-agent-duration-${key}" value="${maxDuration}" class="w-full text-xs border border-purple-300 rounded p-2 outline-none bg-white focus:ring-1 focus:ring-purple-400">
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex gap-2 mt-4">
+                    <button onclick="saveGovernance('${key}')" class="bg-indigo-600 text-white text-xs font-bold px-4 py-1.5 rounded hover:bg-indigo-700 transition">Save Changes</button>
+                    <button onclick="cancelEdit()" class="bg-slate-200 text-slate-700 text-xs font-bold px-4 py-1.5 rounded hover:bg-slate-300 transition">Cancel</button>
+                </div>`;
+            } else {
+                // VIEW MODE
+                const cacheOn = profile.features?.enable_cache ?? profile.enable_cache;
+                const compressOn = profile.features?.enable_prompt_compression ?? profile.enable_prompt_compression;
+                const agentOn = profile.features?.enable_agentic_loop ?? profile.enable_agentic_loop;
+                const model = profile.routing?.fallback_model || profile.fallback_model || '—';
+                const temp = profile.runtime?.temperature ?? '—';
+                const tokens = profile.runtime?.max_tokens ?? '—';
+                
+                // NEW: Agent summary
+                const agentCalls = profile.agent?.max_calls_per_session ?? 20;
+                const agentCost = profile.agent?.max_cost_per_session_usd ?? 0.50;
+
+                function badge(on, onLabel, offLabel) {
+                    return on
+                        ? `<span class="text-[9px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded">${onLabel}</span>`
+                        : `<span class="text-[9px] font-bold text-slate-400 bg-slate-100 border border-slate-200 px-2 py-0.5 rounded">${offLabel}</span>`;
+                }
+
+                document.getElementById('policy-display-or-edit').innerHTML = `
+                <div class="flex flex-wrap items-center gap-4">
+                    <div class="flex gap-4 flex-wrap flex-1">
+                        <div class="text-xs">
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Model</div>
+                            <div class="font-mono font-semibold text-slate-800">${model}</div>
+                        </div>
+                        <div class="text-xs">
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Temp</div>
+                            <div class="font-mono font-semibold text-slate-800">${temp}</div>
+                        </div>
+                        <div class="text-xs">
+                            <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-0.5">Max Tokens</div>
+                            <div class="font-mono font-semibold text-slate-800">${tokens}</div>
+                        </div>
+                        ${agentOn ? `<div class="text-xs">
+                            <div class="text-[10px] font-bold text-purple-600 uppercase tracking-wide mb-0.5">Agent Budget</div>
+                            <div class="font-mono font-semibold text-purple-700">${agentCalls} calls, $${agentCost}</div>
+                        </div>` : ''}
+                        <div class="text-xs flex items-end gap-1.5">
+                            ${badge(cacheOn, 'Cache ON', 'Cache OFF')}
+                            ${badge(compressOn, 'Compress ON', 'Compress OFF')}
+                            ${badge(agentOn, 'Agent ON', 'Agent OFF')}
+                        </div>
+                    </div>
+                    <button onclick="editGovernance('${key}')" class="bg-white border border-slate-300 text-slate-600 text-xs font-bold px-3 py-1.5 rounded hover:bg-slate-50 transition ml-auto flex-shrink-0">Edit Policy</button>
+                </div>`;
+            }
+        }
+
+        function createToggleUI(id, label, isChecked) {
+            return `
+                <div class="flex justify-between items-center py-1">
+                    <span class="text-xs font-medium text-slate-600">${label}</span>
+                    <div class="relative inline-block w-8 align-middle select-none">
+                        <input type="checkbox" name="${id}" id="${id}" class="toggle-checkbox absolute block w-4 h-4 rounded-full bg-white border-4 appearance-none cursor-pointer" ${isChecked ? 'checked' : ''}/>
+                        <label for="${id}" class="toggle-label block overflow-hidden h-4 rounded-full bg-slate-300 cursor-pointer"></label>
+                    </div>
+                </div>`;
+        }
+
+        function editGovernance(profileId) { editingProfile = profileId; renderInlinePolicy(); }
+        function cancelEdit() { editingProfile = null; renderInlinePolicy(); }
+
+        async function saveGovernance(profileId) {
+            const original = governanceState.find(p => p.profile_name === profileId) || {};
+            
+            // NEW: Extract agent budget controls if they exist
+            const agentCallsEl = document.getElementById(`edit-agent-calls-${profileId}`);
+            const agentCostEl = document.getElementById(`edit-agent-cost-${profileId}`);
+            const agentDurationEl = document.getElementById(`edit-agent-duration-${profileId}`);
+            
+            const payload = {
+                ...original,
+                profile_name: profileId,
+                features: {
+                    ...(original.features || {}),
+                    enable_cache: document.getElementById(`edit-cache-${profileId}`).checked,
+                    enable_prompt_compression: document.getElementById(`edit-compress-${profileId}`).checked,
+                    enable_agentic_loop: document.getElementById(`edit-agent-${profileId}`).checked,
+                },
+                runtime: {
+                    ...(original.runtime || {}),
+                    temperature: parseFloat(document.getElementById(`edit-temp-${profileId}`).value),
+                    max_tokens: parseInt(document.getElementById(`edit-tokens-${profileId}`).value),
+                },
+                routing: {
+                    ...(original.routing || {}),
+                    fallback_model: document.getElementById(`edit-model-${profileId}`).value,
+                },
+                // NEW: Include agent budget controls
+                agent: agentCallsEl ? {
+                    enable_agent_loop: document.getElementById(`edit-agent-${profileId}`).checked,
+                    max_calls_per_session: parseInt(agentCallsEl.value || 20),
+                    max_cost_per_session_usd: parseFloat(agentCostEl.value || 0.50),
+                    max_duration_seconds: parseInt(agentDurationEl.value || 300),
+                    timeout_behavior: "terminate"
+                } : (original.agent || {})
+            };
+
+            try {
+                const response = await fetch(`/api/v1/governance/profile/${profileId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) throw new Error('Update failed');
+                await loadGovernanceProfiles();
+                editingProfile = null;
+                renderInlinePolicy();
+            } catch (e) {
+                console.error(e);
+                alert("Error saving configuration to backend.");
+            }
+        }
+
+        // ---- INIT ----
+        async function initDashboard() {
+            const metrics = await fetchData('/api/v1/dashboard/metrics');
+            if (metrics && metrics.summary) {
+                latestDashboardMetrics = metrics;
+                document.getElementById('total-requests').innerText = metrics.summary.total_requests;
+                document.getElementById('total-cost').innerText = '$' + metrics.summary.total_cost_usd.toFixed(6);
+                document.getElementById('avg-ttft').innerHTML = metrics.summary.avg_ttft_ms.toFixed(1) + '<span class="text-xs text-amber-500 ml-1">ms</span>';
+                document.getElementById('cache-rate').innerText = metrics.summary.cache_hit_rate_percent.toFixed(1) + '%';
+
+                // NEW: Update agent budget metrics
+                const agentMetrics = metrics.summary.agent_metrics || {};
+                document.getElementById('total-agent-calls').innerText = agentMetrics.total_agent_calls || 0;
+                document.getElementById('total-agent-cost').innerText = '$' + (agentMetrics.total_agent_cost_usd || 0).toFixed(3);
+                document.getElementById('avg-calls-per-req').innerText = (agentMetrics.avg_calls_per_request || 0).toFixed(1);
+                
+                // Agent cost as % of total spend
+                const totalSpend = metrics.summary.total_cost_usd || 0;
+                const agentCost = agentMetrics.total_agent_cost_usd || 0;
+                const costPct = totalSpend > 0 ? ((agentCost / totalSpend) * 100).toFixed(1) : 0;
+                document.getElementById('agent-cost-pct').innerText = costPct + '% of spend';
+                
+                // Budget-terminated requests
+                document.getElementById('budget-terminated').innerText = agentMetrics.budget_terminated_requests || 0;
+
+                // NEW: Update RAG cost metrics
+                const ragMetrics = metrics.summary.rag_metrics || {};
+                document.getElementById('total-retrieval-cost').innerText = '$' + (ragMetrics.total_retrieval_cost_usd || 0).toFixed(3);
+                document.getElementById('avg-rag-percent').innerText = (ragMetrics.avg_retrieval_percent || 0).toFixed(1);
+
+                // NEW: Update canary metrics
+                const canaryMetrics = metrics.summary.canary_metrics || {};
+                document.getElementById('canary-requests').innerText = canaryMetrics.total_canary_requests || 0;
+                document.getElementById('canary-rate').innerText = (canaryMetrics.canary_rate_percent || 0).toFixed(1);
+                document.getElementById('canary-rollbacks').innerText = canaryMetrics.canary_rollbacks || 0;
+                document.getElementById('rollback-rate').innerText = (canaryMetrics.rollback_rate_percent || 0).toFixed(1);
+
+                // NEW: Render department chargeback breakdown
+                const chargebackData = metrics.summary.chargeback_by_department || {};
+                const chargebackDiv = document.getElementById('chargeback-breakdown');
+                if (Object.keys(chargebackData).length > 0) {
+                    chargebackDiv.innerHTML = Object.entries(chargebackData).map(([dept, data]) => `
+                        <div class="bg-white p-3 border border-slate-200 rounded flex flex-col justify-between border-l-4 border-l-emerald-500">
+                            <div class="text-[10px] font-bold text-slate-600 uppercase tracking-wide">${dept}</div>
+                            <div class="text-lg font-bold text-emerald-600 mt-1">$${data.cost_usd.toFixed(3)}</div>
+                            <div class="text-[9px] text-slate-400 mt-1">${data.requests} requests</div>
+                        </div>
+                    `).join('');
+                }
+
+                const tbody = document.getElementById('logs-body');
+                if (metrics.recent_logs && metrics.recent_logs.length > 0) {
+                    const recent = metrics.recent_logs.slice(0, 5);
+                    const newest = recent[0];
+                    const newestSignature = JSON.stringify({
+                        m: newest?.model_used,
+                        ttft: newest?.ttft_ms,
+                        tpot: newest?.tpot_ms,
+                        c: newest?.total_cost_usd,
+                        in: newest?.input_tokens,
+                        out: newest?.output_tokens,
+                    });
+
+                    if (newestSignature !== latestLogSignature) {
+                        latestLogSignature = newestSignature;
+                        latestRowHighlightUntil = Date.now() + 7000;
+                    }
+
+                    const highlightLatest = Date.now() < latestRowHighlightUntil;
+
+                    const rowHtml = (log, isLatest = false) => `
+                        <tr class="hover:bg-slate-50 transition ${isLatest && highlightLatest ? 'latest-row-highlight' : ''}">
+                            <td class="px-5 py-2.5 whitespace-nowrap text-xs font-semibold text-indigo-600">
+                                <div class="flex items-center gap-2">
+                                    <span>${log.model_used || '-'}</span>
+                                    ${isLatest ? '<span class="px-1.5 py-0.5 inline-flex text-[9px] font-bold rounded bg-indigo-100 text-indigo-700">LATEST</span>' : ''}
+                                </div>
+                            </td>
+                            <td class="px-5 py-2.5 whitespace-nowrap text-xs text-slate-700 text-right font-mono">${log.ttft_ms?.toFixed(1) || '0.0'}</td>
+                            <td class="px-5 py-2.5 whitespace-nowrap text-xs text-slate-700 text-right font-mono">${log.tpot_ms?.toFixed(1) || '0.0'}</td>
+                            <td class="px-5 py-2.5 whitespace-nowrap text-xs text-emerald-600 text-right font-mono">$${log.total_cost_usd?.toFixed(6) || '0.00'}</td>
+                            <td class="px-5 py-2.5 whitespace-nowrap text-center">
+                                ${log.cache_hit
+                                    ? '<span class="px-2 py-0.5 inline-flex text-[9px] font-bold rounded bg-emerald-100 text-emerald-700">HIT</span>'
+                                    : '<span class="px-2 py-0.5 inline-flex text-[9px] font-bold rounded bg-slate-100 text-slate-500">MISS</span>'}
+                            </td>
+                        </tr>
+                    `;
+
+                    const latest = rowHtml(newest, true);
+                    const others = recent.slice(1).map(log => rowHtml(log, false)).join('');
+                    tbody.innerHTML = latest + others;
+                }
+
+                if (metrics.infrastructure) {
+                    document.getElementById('global-active-reqs').innerHTML = `
+                        <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
+                        ${metrics.infrastructure.global_active_requests} Active Connections
+                    `;
+
+                    const infraContainer = document.getElementById('infra-nodes');
+                    if (metrics.infrastructure.nodes && metrics.infrastructure.nodes.length > 0) {
+                        infraContainer.innerHTML = metrics.infrastructure.nodes.map(node => {
+                            const isOverloaded = node.status === 'overloaded';
+                            const bgColor = isOverloaded ? 'bg-red-50 text-red-700 border-red-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                            const barColor = isOverloaded ? 'bg-red-500' : 'bg-emerald-500';
+
+                            return `
+                                <div class="bg-white rounded border border-slate-200 p-4 shadow-sm flex flex-col relative overflow-hidden">
+                                    <div class="absolute top-0 left-0 w-1 h-full ${barColor}"></div>
+                                    <div class="flex justify-between items-start mb-3 ml-2">
+                                        <div class="font-mono text-[11px] font-bold text-slate-800">${node.model}</div>
+                                        <span class="text-[9px] font-bold px-1.5 py-0.5 rounded border ${bgColor} uppercase tracking-wider">${node.status}</span>
+                                    </div>
+                                    <div class="ml-2 space-y-2">
+                                        <div class="flex justify-between text-[10px]">
+                                            <span class="text-slate-500">Active Requests</span>
+                                            <span class="font-bold text-slate-700">${node.active_connections}</span>
+                                        </div>
+                                        <div>
+                                            <div class="flex justify-between text-[10px] mb-1">
+                                                <span class="text-slate-500">Simulated VRAM Load</span>
+                                                <span class="font-bold ${isOverloaded ? 'text-red-600' : 'text-slate-700'}">${node.simulated_gpu_load_percent}%</span>
+                                            </div>
+                                            <div class="w-full bg-slate-100 rounded-full h-1.5">
+                                                <div class="${barColor} h-1.5 rounded-full transition-all duration-300" style="width: ${node.simulated_gpu_load_percent}%"></div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        }).join('');
+                    } else {
+                        infraContainer.innerHTML = `<div class="text-xs text-slate-400 italic p-2">System idle. No active model deployments detected.</div>`;
+                    }
+
+                    const hasActiveInfra =
+                        (metrics.infrastructure.global_active_requests || 0) > 0
+                        || (metrics.infrastructure.nodes?.length || 0) > 0;
+                    if (!infraAutoCollapseInitialized) {
+                        setInfraCollapsed(!hasActiveInfra);
+                        infraAutoCollapseInitialized = true;
+                    } else if (hasActiveInfra && infraCollapsed) {
+                        setInfraCollapsed(false);
+                    }
+                }
+            }
+
+            updateStickyCompareBar();
+        }
+
+        async function initGlobal() {
+            /* ========================================================
+               PAGE INITIALIZATION & AUTO-REFRESH ORCHESTRATION
+               Executed on page load (window.onload = initGlobal)
+               
+               INITIALIZATION STEPS:
+               1. Attach event listeners to registry filters & compare controls
+               2. Attach interaction tracking to benchmark tab
+               3. Load all backend state in parallel:
+                  - Dashboard metrics & KPIs (observability)
+                  - Model registry & variants
+                  - Governance profiles
+                  - Provider catalog
+                  - Benchmark jobs list
+               4. Setup auto-refresh intervals:
+                  - Dashboard metrics: 2s (always)
+                  - Registry catalog: 6s (when tab is active)
+                  - Benchmark jobs: 5s (when tab active + not running + no recent interaction)
+               5. Setup global event listeners for sticky compare bar visibility
+               ======================================================== */
+            const searchEl = document.getElementById('registry-search');
+            const providerEl = document.getElementById('registry-provider-filter');
+            const fitPresetEl = document.getElementById('registry-fit-preset');
+            const sortEl = document.getElementById('registry-sort');
+            const compareCountEl = document.getElementById('compare-count');
+            const benchmarkTab = document.getElementById('tab-benchmarks');
+
+            if (searchEl) searchEl.addEventListener('input', renderRegistryCards);
+            if (providerEl) providerEl.addEventListener('change', renderRegistryCards);
+            if (fitPresetEl) fitPresetEl.addEventListener('change', renderRegistryCards);
+            if (sortEl) sortEl.addEventListener('change', renderRegistryCards);
+            if (compareCountEl) compareCountEl.addEventListener('change', renderCompareSlots);
+
+            if (benchmarkTab) {
+                benchmarkTab.addEventListener('focusin', noteBenchmarkInteraction);
+                benchmarkTab.addEventListener('change', noteBenchmarkInteraction);
+                benchmarkTab.addEventListener('pointerdown', noteBenchmarkInteraction);
+                benchmarkTab.addEventListener('keydown', noteBenchmarkInteraction);
+            }
+
+            // NEW: Initialize RBAC (Role-Based Access Control)
+            applyRbacRestrictions();
+
+            Promise.all([
+                refreshObservability(),
+                refreshRegistryCatalog(),
+                loadGovernanceProfiles(),
+                loadProviderCatalog(),
+                fetchBenchmarkJobs()
+            ]);
+
+            renderCompareSlots();
+
+            if (!observabilityIntervalId) {
+                observabilityIntervalId = setInterval(initDashboard, 2000);
+            }
+
+            if (!registryAutoRefreshId) {
+                registryAutoRefreshId = setInterval(() => {
+                    const registryTab = document.getElementById('tab-registry');
+                    if (registryTab && !registryTab.classList.contains('hidden')) {
+                        refreshRegistryCatalog();
+                    }
+                }, 6000);
+            }
+
+            if (!benchmarkAutoRefreshId) {
+                benchmarkAutoRefreshId = setInterval(() => {
+                    const benchmarkTab = document.getElementById('tab-benchmarks');
+                    if (
+                        benchmarkTab
+                        && !benchmarkTab.classList.contains('hidden')
+                        && !benchmarkRunInFlight
+                        && !isBenchmarkInteractionActive()
+                    ) {
+                        fetchBenchmarkJobs(selectedBenchmarkJobId);
+                    }
+                }, 5000);
+            }
+
+            window.addEventListener('scroll', updateStickyCompareBar, { passive: true });
+            window.addEventListener('resize', updateStickyCompareBar);
+            updateStickyCompareBar();
+        }
+
+        window.onload = initGlobal;
+    </script>
+</body>
+</html>

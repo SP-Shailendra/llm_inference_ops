@@ -1,0 +1,21 @@
+New-Item -Path .gitignore -ItemType File -Value @"
+# Sensitive environment configurations
+.env
+.env.local
+
+# Python environment and build artifacts
+__pycache__/
+*.pyc
+.venv/
+venv/
+ENV/
+env/
+
+# Local databases and analytical stores
+*.db
+*.sqlite3
+
+# OS specific files
+.DS_Store
+Thumbs.db
+"@
