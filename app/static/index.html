@@ -42,10 +42,12 @@
             border-radius: 12px;
             padding: 0.65rem 1.1rem;
             transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1);
-            background: rgba(255,255,255,0.5);
+            background: rgba(255,255,255,0.7);
             font-weight: 600;
             position: relative;
             overflow: hidden;
+            color: #334155;
+            text-shadow: 0 1px 2px rgba(255,255,255,0.5);
         }
         .tab-btn::before {
             content: '';
@@ -55,17 +57,19 @@
             transition: background 0.22s ease;
         }
         .tab-btn:hover {
-            background: rgba(255,255,255,0.8);
+            background: rgba(255,255,255,0.95);
             transform: translateY(-2px) scale(1.05);
-            box-shadow: 0 6px 20px rgba(0,0,0,0.1);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+            color: #1e293b;
         }
         .tab-btn.active {
-            background: linear-gradient(135deg, rgba(79, 70, 229, 0.95), rgba(14, 165, 233, 0.95));
-            color: white;
+            background: linear-gradient(135deg, rgba(79, 70, 229, 0.98), rgba(14, 165, 233, 0.98));
+            color: #ffffff;
             font-weight: 700;
-            border-color: rgba(255, 255, 255, 0.4);
-            box-shadow: 0 12px 32px rgba(79, 70, 229, 0.35), inset 0 1px 0 rgba(255,255,255,0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+            box-shadow: 0 12px 32px rgba(79, 70, 229, 0.4), inset 0 1px 0 rgba(255,255,255,0.4);
             transform: translateY(-3px);
+            text-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
         
         /* ---- CUSTOM SCROLLBARS ---- */
@@ -244,14 +248,15 @@
                 </div>
             </div>
 
-            <!-- Department Chargeback Breakdown (NEW) -->
-            <div class="panel-card order-4" id="chargeback-card">
-                <div class="panel-card-header px-5 py-3">
-                    <h3 class="text-sm font-semibold text-slate-800">Chargeback by Department</h3>
+            <!-- Workload Distribution Panel -->
+            <div class="panel-card order-5">
+                <div class="panel-card-header px-5 py-3 flex items-center justify-between">
+                    <h3 class="text-sm font-semibold text-slate-800">Workload Distribution</h3>
+                    <span class="text-[10px] text-slate-400">Classified from live telemetry</span>
                 </div>
-                <div class="p-5 bg-slate-50/50">
-                    <div id="chargeback-breakdown" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="text-xs text-slate-400 italic p-2">No department data available...</div>
+                <div class="p-5">
+                    <div id="workload-distribution" class="space-y-2">
+                        <div class="text-xs text-slate-400 italic">No classified requests yet. Run prompts through the gateway to see workload breakdown.</div>
                     </div>
                 </div>
             </div>
@@ -304,7 +309,19 @@
                     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                         <div>
                             <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Prompt <span class="text-red-500">*</span></label>
-                            <textarea id="compare-prompt" rows="3" class="w-full bg-white border border-slate-300 rounded text-xs p-2.5 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner custom-scrollbar resize-none" placeholder="e.g. Explain the impact of Flash Attention on KV cache..."></textarea>
+                            <textarea id="compare-prompt" rows="3" oninput="debouncedClassifyPrompt()" class="w-full bg-white border border-slate-300 rounded text-xs p-2.5 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 shadow-inner custom-scrollbar resize-none" placeholder="e.g. Explain the impact of Flash Attention on KV cache..."></textarea>
+                            <!-- Prompt Intelligence Preview Strip -->
+                            <div id="prompt-intel-strip" class="hidden mt-2 rounded-lg border border-indigo-200 bg-indigo-50/60 px-3 py-2 text-[10px] space-y-1.5">
+                                <div class="flex items-center gap-1.5 font-bold text-indigo-700"><span>🧠</span><span>Prompt Intelligence</span><span id="prompt-intel-confidence" class="ml-auto font-mono text-indigo-400"></span></div>
+                                <div class="flex flex-wrap gap-2">
+                                    <span class="bg-white border border-indigo-200 text-indigo-800 px-2 py-0.5 rounded font-semibold">Workload: <span id="pi-workload">—</span></span>
+                                    <span class="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded">Complexity: <span id="pi-complexity" class="font-semibold">—</span></span>
+                                    <span class="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded">Temp: <span id="pi-temp" class="font-mono font-semibold text-amber-700">—</span></span>
+                                    <span class="bg-white border border-slate-200 text-slate-700 px-2 py-0.5 rounded">Max Tokens: <span id="pi-tokens" class="font-mono font-semibold text-blue-700">—</span></span>
+                                    <span id="pi-safety" class="hidden bg-red-50 border border-red-200 text-red-700 px-2 py-0.5 rounded font-semibold">⚠️ Safety Risk</span>
+                                </div>
+                                <div id="pi-reason" class="text-slate-500 italic"></div>
+                            </div>
                         </div>
                         <div class="md:col-span-2 space-y-3">
                             <div class="flex flex-wrap items-center gap-3">
@@ -335,6 +352,9 @@
                     <!-- Compare Results -->
                     <div id="compare-results" class="hidden mt-2">
                         <div id="compare-results-grid" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+
+                        <!-- Comparison Analysis Report -->
+                        <div id="compare-analysis-report" class="mt-6 bg-white rounded-lg border border-slate-200 p-5 shadow-sm"></div>
 
                         <!-- Delta Summary Bar -->
                         <div id="compare-delta" class="mt-3 bg-slate-800 text-white rounded-lg px-5 py-3 flex flex-wrap gap-x-6 gap-y-2 text-xs items-center hidden">
@@ -475,6 +495,70 @@
                                 <h4 class="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">Execution Pipeline Trace</h4>
                                 <div id="gateway-trace" class="space-y-3.5 pl-3 border-l-2 border-indigo-100 ml-1 py-1"></div>
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ══════════════════════════════════════════════════
+                     AI SOLUTION ADVISOR — Advisory Mode
+                     POST /api/v1/advisor/recommend
+                     Zero inference cost — pure recommendation engine
+                ══════════════════════════════════════════════════ -->
+                <div class="panel-card mt-6">
+                    <div class="panel-card-header px-5 py-3 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-sm font-bold text-slate-800">🤖 AI Solution Advisor</h3>
+                            <p class="text-[10px] text-slate-400 mt-0.5">POST /api/v1/advisor/recommend — Describe a scenario and get model/provider/parameter recommendations. No LLM call made.</p>
+                        </div>
+                        <span class="text-[9px] font-bold bg-violet-50 text-violet-600 border border-violet-200 px-2 py-0.5 rounded uppercase tracking-wide">Advisory Mode</span>
+                    </div>
+                    <div class="p-5 space-y-4">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Business Scenario <span class="text-red-500">*</span></label>
+                                <textarea id="advisor-scenario" rows="4" class="w-full bg-white border border-slate-300 rounded text-xs p-2.5 focus:ring-1 focus:ring-violet-400 focus:border-violet-400 shadow-inner custom-scrollbar resize-none" placeholder="e.g. I want to build an AI test generator platform where users provide scenarios and it generates test scripts..."></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1.5">Constraints (Optional)</label>
+                                <textarea id="advisor-constraints" rows="4" class="w-full bg-white border border-slate-300 rounded text-xs p-2.5 focus:ring-1 focus:ring-violet-400 focus:border-violet-400 shadow-inner custom-scrollbar resize-none" placeholder="e.g. Budget under $50/month, low latency required, on-premise preferred, avoid INT4..."></textarea>
+                            </div>
+                        </div>
+
+                        <!-- Quick scenario examples -->
+                        <div class="flex flex-wrap gap-2">
+                            <span class="text-[10px] font-semibold text-slate-500 uppercase tracking-wide self-center mr-1">Try:</span>
+                            <button onclick="fillAdvisoryScenario('I want to build an AI test generator platform where users provide a scenario and it generates automated test scripts. Which model is best?')" class="text-[10px] px-2 py-1 rounded border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 transition">🧪 Test Generator</button>
+                            <button onclick="fillAdvisoryScenario('Which model should I use for a customer support chatbot that handles 10,000 queries per day in multiple languages?')" class="text-[10px] px-2 py-1 rounded border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 transition">💬 Customer Support</button>
+                            <button onclick="fillAdvisoryScenario('Best model for extracting structured data from invoices and receipts as JSON output?')" class="text-[10px] px-2 py-1 rounded border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition">📄 Invoice Extraction</button>
+                            <button onclick="fillAdvisoryScenario('I need to build a code review assistant that analyzes pull requests and suggests improvements. What is the best AI model for this?')" class="text-[10px] px-2 py-1 rounded border border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100 transition">👨‍💻 Code Review</button>
+                            <button onclick="fillAdvisoryScenario('Best LLM for translating documents from English to 10 different languages at scale?')" class="text-[10px] px-2 py-1 rounded border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 transition">🌐 Translation</button>
+                        </div>
+
+                        <button id="advisor-btn" onclick="runAdvisory()" class="w-full md:w-auto bg-violet-600 hover:bg-violet-700 text-white font-semibold py-2 px-5 rounded transition duration-200 flex items-center gap-2 text-sm shadow-sm">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.346.346a3.86 3.86 0 00-1.143 2.31 1 1 0 01-.995.941h-2.828a1 1 0 01-.995-.941 3.86 3.86 0 00-1.143-2.31L9.172 17"/></svg>
+                            <span>Get Recommendation</span>
+                            <div id="advisor-spinner" class="spinner hidden"></div>
+                        </button>
+
+                        <!-- Results -->
+                        <div id="advisor-results" class="hidden space-y-4 mt-2">
+                            <!-- Classification Banner -->
+                            <div id="advisor-classification-banner" class="rounded-lg border p-3 flex flex-wrap gap-4 text-xs"></div>
+
+                            <!-- Model Recommendations -->
+                            <div>
+                                <h4 class="text-[11px] font-bold text-slate-700 uppercase tracking-wide mb-2">📊 Model Recommendations</h4>
+                                <div id="advisor-model-cards" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+                            </div>
+
+                            <!-- Parameters + Deployment -->
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div id="advisor-params-box" class="bg-slate-50 border border-slate-200 rounded-lg p-4"></div>
+                                <div id="advisor-deployment-box" class="bg-indigo-50 border border-indigo-200 rounded-lg p-4"></div>
+                            </div>
+
+                            <!-- Warnings -->
+                            <div id="advisor-warnings" class="hidden"></div>
                         </div>
                     </div>
                 </div>
@@ -1641,6 +1725,214 @@
             }
         }
 
+        // ── AI SOLUTION ADVISOR ────────────────────────────────────────────
+        function fillAdvisoryScenario(text) {
+            document.getElementById('advisor-scenario').value = text;
+        }
+
+        async function runAdvisory() {
+            const scenario = document.getElementById('advisor-scenario').value.trim();
+            if (!scenario) return alert('Please enter a business scenario.');
+            const constraints = document.getElementById('advisor-constraints').value.trim();
+
+            const btn = document.getElementById('advisor-btn');
+            const spinner = document.getElementById('advisor-spinner');
+            const results = document.getElementById('advisor-results');
+            btn.disabled = true;
+            spinner.classList.remove('hidden');
+            results.classList.add('hidden');
+
+            try {
+                const res = await fetch('/api/v1/advisor/recommend', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ scenario, constraints: constraints || null })
+                });
+                if (!res.ok) throw new Error(`Advisor error ${res.status}`);
+                const data = await res.json();
+                renderAdvisoryResults(data);
+                results.classList.remove('hidden');
+            } catch(e) {
+                alert(e.message || 'Advisory engine error.');
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        function renderAdvisoryResults(data) {
+            const workloadColors = {
+                coding: 'bg-blue-50 border-blue-200 text-blue-800',
+                sql: 'bg-cyan-50 border-cyan-200 text-cyan-800',
+                advisory: 'bg-violet-50 border-violet-200 text-violet-800',
+                creative_writing: 'bg-pink-50 border-pink-200 text-pink-800',
+                summarization: 'bg-amber-50 border-amber-200 text-amber-800',
+                translation: 'bg-teal-50 border-teal-200 text-teal-800',
+                research: 'bg-indigo-50 border-indigo-200 text-indigo-800',
+                debugging: 'bg-red-50 border-red-200 text-red-800',
+                default: 'bg-slate-50 border-slate-200 text-slate-700'
+            };
+            const color = workloadColors[data.detected_workload] || workloadColors.default;
+
+            // Classification banner
+            document.getElementById('advisor-classification-banner').className = `rounded-lg border p-3 flex flex-wrap gap-4 text-xs ${color}`;
+            document.getElementById('advisor-classification-banner').innerHTML = `
+                <div><span class="font-bold uppercase tracking-wide text-[10px]">Workload</span><div class="font-semibold mt-0.5">${data.detected_workload.replace(/_/g,' ').toUpperCase()}</div></div>
+                <div><span class="font-bold uppercase tracking-wide text-[10px]">Complexity</span><div class="font-semibold mt-0.5">${data.complexity.toUpperCase()}</div></div>
+                <div><span class="font-bold uppercase tracking-wide text-[10px]">Confidence</span><div class="font-semibold mt-0.5">${data.classification_confidence}%</div></div>
+                <div class="flex-1"><span class="font-bold uppercase tracking-wide text-[10px]">Key Requirements</span><div class="mt-0.5">${data.key_requirements.join(' • ')}</div></div>
+            `;
+
+            // Model recommendation cards
+            const rankColors = ['border-l-4 border-l-emerald-500 bg-emerald-50/30', 'border-l-4 border-l-blue-400 bg-blue-50/20', 'border-l-4 border-l-slate-300 bg-white', 'border-l-4 border-l-slate-200 bg-white'];
+            const rankLabels = ['🥇 Best Choice', '🥈 Runner-up', '🥉 Alternative', '4️⃣ Option'];
+            document.getElementById('advisor-model-cards').innerHTML = data.model_recommendations.map((m, i) => `
+                <div class="border rounded-lg p-3 ${rankColors[i] || rankColors[2]}">
+                    <div class="flex items-center justify-between mb-1.5">
+                        <span class="text-[10px] font-bold text-slate-500 uppercase">${rankLabels[i] || `#${m.rank}`}</span>
+                        <span class="text-[10px] font-bold px-2 py-0.5 rounded-full ${m.confidence >= 85 ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${m.confidence}% confidence</span>
+                    </div>
+                    <div class="font-bold text-slate-800 text-sm">${m.model}</div>
+                    <div class="text-[10px] text-slate-500 mb-1.5">${m.provider}${m.variant_id ? ' · ' + m.variant_id : ''}</div>
+                    <div class="text-xs text-slate-600 mb-2">${m.why}</div>
+                    ${m.strengths.length ? `<div class="text-[10px] text-emerald-700 space-y-0.5">${m.strengths.map(s=>`<div>✓ ${s}</div>`).join('')}</div>` : ''}
+                    ${m.weaknesses.length ? `<div class="text-[10px] text-amber-700 mt-1 space-y-0.5">${m.weaknesses.map(w=>`<div>⚠ ${w}</div>`).join('')}</div>` : ''}
+                    <div class="flex gap-3 mt-2 pt-2 border-t border-slate-100 text-[10px] font-mono text-slate-500">
+                        <span>Est. cost/1K req: <strong>${m.estimated_cost_per_1k_requests}</strong></span>
+                        <span>TTFT: <strong>${m.estimated_ttft_ms}</strong></span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Parameters box
+            document.getElementById('advisor-params-box').innerHTML = `
+                <div class="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-2">⚙️ Recommended Parameters</div>
+                <div class="space-y-2">
+                    <div class="flex justify-between text-xs"><span class="text-slate-600">Temperature</span><span class="font-mono font-bold text-indigo-700">${data.recommended_parameters.temperature}</span></div>
+                    <div class="flex justify-between text-xs"><span class="text-slate-600">Max Tokens</span><span class="font-mono font-bold text-indigo-700">${data.recommended_parameters.max_tokens}</span></div>
+                </div>
+                <div class="mt-3 text-[10px] text-slate-500 italic leading-relaxed">${data.recommended_parameters.reasoning}</div>
+            `;
+
+            // Deployment box
+            document.getElementById('advisor-deployment-box').innerHTML = `
+                <div class="text-[10px] font-bold text-indigo-700 uppercase tracking-wide mb-2">🚀 Deployment Advice</div>
+                <div class="text-xs text-slate-700 leading-relaxed">${data.deployment_advice}</div>
+            `;
+
+            // Warnings
+            const warningsEl = document.getElementById('advisor-warnings');
+            if (data.warnings && data.warnings.length) {
+                warningsEl.classList.remove('hidden');
+                warningsEl.innerHTML = `
+                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 space-y-1">
+                        <div class="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">⚠️ Warnings</div>
+                        ${data.warnings.map(w => `<div class="text-xs text-amber-700">• ${w}</div>`).join('')}
+                    </div>
+                `;
+            } else {
+                warningsEl.classList.add('hidden');
+            }
+        }
+        // ── END AI SOLUTION ADVISOR ────────────────────────────────────────
+
+        // ── PROMPT INTELLIGENCE PREVIEW (comparison panel) ─────────────────
+        let _classifyTimer = null;
+        function debouncedClassifyPrompt() {
+            clearTimeout(_classifyTimer);
+            _classifyTimer = setTimeout(classifyComparePrompt, 420);
+        }
+
+        async function classifyComparePrompt() {
+            const prompt = document.getElementById('compare-prompt')?.value?.trim();
+            const strip = document.getElementById('prompt-intel-strip');
+            if (!prompt || prompt.length < 8) { strip?.classList.add('hidden'); return; }
+
+            try {
+                const res = await fetch('/api/v1/experiments/classify', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ prompt })
+                });
+                if (!res.ok) return;
+                const d = await res.json();
+
+                const workloadColors = {
+                    coding: 'text-blue-800', sql: 'text-cyan-800', debugging: 'text-red-700',
+                    creative_writing: 'text-pink-700', summarization: 'text-amber-700',
+                    translation: 'text-teal-700', research: 'text-indigo-700',
+                    json_generation: 'text-emerald-700', advisory: 'text-violet-700',
+                    chat: 'text-slate-600', default: 'text-slate-700'
+                };
+                const wlColor = workloadColors[d.workload_type] || workloadColors.default;
+
+                document.getElementById('pi-workload').textContent = d.workload_type.replace(/_/g,' ').toUpperCase();
+                document.getElementById('pi-workload').className = `font-semibold ${wlColor}`;
+                document.getElementById('pi-complexity').textContent = d.complexity.toUpperCase();
+                document.getElementById('pi-temp').textContent = d.recommended_temperature.toFixed(2);
+                document.getElementById('pi-tokens').textContent = d.recommended_max_tokens;
+                document.getElementById('pi-reason').textContent = d.classification_reason;
+                document.getElementById('prompt-intel-confidence').textContent = `${d.confidence}% confidence`;
+
+                const safetyEl = document.getElementById('pi-safety');
+                if (d.safety_risk === 'high') safetyEl.classList.remove('hidden');
+                else safetyEl.classList.add('hidden');
+
+                strip.classList.remove('hidden');
+            } catch (_) {}
+        }
+        // ── END PROMPT INTELLIGENCE PREVIEW ────────────────────────────────
+
+        // ── WORKLOAD DISTRIBUTION PANEL ─────────────────────────────────────
+        function renderWorkloadDistribution(logs) {
+            const container = document.getElementById('workload-distribution');
+            if (!container) return;
+            if (!logs || !logs.length) return;
+
+            // Count workload types from telemetry logs that have workload_type set
+            const counts = {};
+            let classified = 0;
+            logs.forEach(l => {
+                const wl = l.workload_type;
+                if (wl && wl !== 'unknown') {
+                    counts[wl] = (counts[wl] || 0) + 1;
+                    classified++;
+                }
+            });
+
+            if (!classified) {
+                container.innerHTML = '<div class="text-xs text-slate-400 italic">No classified requests yet. Run prompts through the gateway to see workload breakdown.</div>';
+                return;
+            }
+
+            const barColors = {
+                coding: 'bg-blue-500', sql: 'bg-cyan-500', debugging: 'bg-red-400',
+                creative_writing: 'bg-pink-400', summarization: 'bg-amber-400',
+                translation: 'bg-teal-400', research: 'bg-indigo-500',
+                json_generation: 'bg-emerald-500', advisory: 'bg-violet-500',
+                chat: 'bg-slate-400', extraction: 'bg-orange-400',
+                planning: 'bg-purple-400', question_answer: 'bg-sky-400'
+            };
+
+            const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]);
+            const total = logs.length;
+
+            container.innerHTML = sorted.map(([wl, count]) => {
+                const pct = Math.round((count / total) * 100);
+                const barColor = barColors[wl] || 'bg-slate-400';
+                return `
+                    <div class="flex items-center gap-3 text-xs">
+                        <div class="w-28 text-right text-slate-600 font-medium capitalize shrink-0">${wl.replace(/_/g,' ')}</div>
+                        <div class="flex-1 bg-slate-100 rounded-full h-2">
+                            <div class="${barColor} h-2 rounded-full transition-all duration-500" style="width:${pct}%"></div>
+                        </div>
+                        <div class="w-12 text-slate-500 font-mono shrink-0">${pct}% <span class="text-slate-400">(${count})</span></div>
+                    </div>
+                `;
+            }).join('');
+        }
+        // ── END WORKLOAD DISTRIBUTION PANEL ────────────────────────────────
+
         function renderGatewayModelOptions() {
             const providerSelect = document.getElementById('gateway-provider');
             const modelSelect = document.getElementById('gateway-model');
@@ -1728,9 +2020,22 @@
                 ...models.map(m => `<option value="${m}">${m}</option>`)
             ].join('');
 
+            // Filter variants by selected provider
+            // Include both registry data AND runtime variants from provider catalog
+            const registryVariants = registryData
+                .filter(v => v.provider === selectedProvider)
+                .map(v => v.variant_id);
+            
+            // Also create variant IDs from provider's models (for runtime providers like Gemini)
+            const runtimeVariants = (providerEntry?.models || [])
+                .map(m => `${selectedProvider.toLowerCase().replace(/\s+/g, '-')}::${m}`);
+            
+            // Combine and deduplicate
+            const allVariants = [...new Set([...registryVariants, ...runtimeVariants])];
+
             variantSelect.innerHTML = [
                 '<option value="">Auto (Provider Default)</option>',
-                ...(availableModels.length ? availableModels : []).map(v => `<option value="${v}">${v}</option>`)
+                ...(allVariants.length ? allVariants : availableModels).map(v => `<option value="${v}">${v}</option>`)
             ].join('');
 
             modelSelect.onchange = (event) => {
@@ -1827,6 +2132,221 @@
                 if (variantEl) variantEl.value = slot.variant || '';
                 if (modelEl) modelEl.value = slot.model || '';
             });
+        }
+
+        function renderComparisonAnalysisReport(results) {
+            /* DETAILED COMPARISON ANALYSIS REPORT
+               Displays comprehensive metrics comparison and winner analysis
+               
+               INPUT: results array of comparison objects
+               OUTPUT: Renders analysis report showing:
+               - Metrics comparison table for all variables
+               - Category winners (fastest, cheapest, most accurate)
+               - Final recommendation with reasoning
+               - Trade-off analysis
+            */
+            const container = document.getElementById('compare-analysis-report');
+            if (!container || !results.length) return;
+
+            // Calculate metrics across all results
+            const metrics = results.map((entry, idx) => ({
+                name: entry.slot_name,
+                ttft_ms: entry.variant.ttft_ms || 0,
+                tpot_ms: entry.variant.tpot_ms || 0,
+                total_latency_ms: entry.variant.total_latency_ms || 0,
+                cost_usd: entry.variant.total_cost_usd || 0,
+                accuracy: entry.variant.accuracy_retention || 1.0,
+                vram_gb: entry.variant.vram_required_gb || 0,
+                outlier_risk: entry.variant.is_outlier_sensitive ? 'HIGH' : 'SAFE',
+                cache_hit: entry.variant.cache_hit ? 'YES' : 'NO',
+                input_tokens: entry.variant.input_tokens || 0,
+                output_tokens: entry.variant.output_tokens || 0,
+                provider: entry.variant.provider || 'Unknown',
+                quantization: entry.variant.quantization_level || 'N/A',
+                index: idx
+            }));
+
+            // Find winners in each category
+            const fastest = metrics.reduce((a, b) => a.ttft_ms < b.ttft_ms ? a : b);
+            const cheapest = metrics.reduce((a, b) => a.cost_usd < b.cost_usd ? a : b);
+            const mostAccurate = metrics.reduce((a, b) => a.accuracy > b.accuracy ? a : b);
+            const lowestLatency = metrics.reduce((a, b) => a.total_latency_ms < b.total_latency_ms ? a : b);
+            const lowestVram = metrics.reduce((a, b) => a.vram_gb < b.vram_gb ? a : b);
+
+            // Scoring system for overall recommendation
+            const scores = metrics.map(m => {
+                let score = 0;
+                if (m.ttft_ms === fastest.ttft_ms) score += 2;
+                if (m.cost_usd === cheapest.cost_usd) score += 2;
+                if (m.accuracy === mostAccurate.accuracy) score += 2;
+                if (m.total_latency_ms === lowestLatency.total_latency_ms) score += 1;
+                if (m.vram_gb === lowestVram.vram_gb) score += 1;
+                if (m.outlier_risk === 'SAFE') score += 1;
+                return { ...m, score };
+            });
+
+            const winner = scores.reduce((a, b) => a.score > b.score ? a : b);
+
+            // Build metrics comparison table
+            const metricsTable = `
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-gradient-to-r from-indigo-50 to-purple-50 border-b-2 border-indigo-200">
+                                <th class="text-left px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Model</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Provider</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Quantization</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">TTFT (ms) ${fastest.name === 'Model 1' ? '⭐' : ''}</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">TPOT (ms)</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Total Latency (ms)</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Cost ($) ${cheapest.name === 'Model 1' ? '💰' : ''}</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Accuracy ${mostAccurate.name === 'Model 1' ? '✓' : ''}</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">VRAM (GB)</th>
+                                <th class="text-right px-3 py-2 font-bold text-slate-700 uppercase tracking-wide">Outlier Risk</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${metrics.map((m, idx) => {
+                                const rowClass = idx % 2 === 0 ? 'bg-slate-50' : 'bg-white';
+                                const isWinner = m.index === winner.index ? 'border-l-4 border-emerald-500 bg-emerald-50' : '';
+                                return `
+                                    <tr class="${rowClass} ${isWinner} border-b border-slate-200 hover:bg-blue-50/30 transition">
+                                        <td class="px-3 py-2 font-semibold text-slate-800">${m.name}</td>
+                                        <td class="text-right px-3 py-2 text-slate-600">${m.provider}</td>
+                                        <td class="text-right px-3 py-2 text-slate-600">${m.quantization}</td>
+                                        <td class="text-right px-3 py-2 font-mono font-semibold text-slate-700 ${m.ttft_ms === fastest.ttft_ms ? 'text-emerald-700 font-bold' : ''}">${m.ttft_ms.toFixed(1)}</td>
+                                        <td class="text-right px-3 py-2 font-mono text-slate-700">${m.tpot_ms.toFixed(2)}</td>
+                                        <td class="text-right px-3 py-2 font-mono text-slate-700">${m.total_latency_ms.toFixed(1)}</td>
+                                        <td class="text-right px-3 py-2 font-mono font-semibold text-slate-700 ${m.cost_usd === cheapest.cost_usd ? 'text-emerald-700 font-bold' : ''}">${m.cost_usd.toFixed(6)}</td>
+                                        <td class="text-right px-3 py-2 font-mono font-semibold text-slate-700 ${m.accuracy === mostAccurate.accuracy ? 'text-blue-700 font-bold' : ''}">${(m.accuracy * 100).toFixed(1)}%</td>
+                                        <td class="text-right px-3 py-2 font-mono text-slate-700 ${m.vram_gb === lowestVram.vram_gb ? 'text-purple-700 font-bold' : ''}">${m.vram_gb.toFixed(1)}</td>
+                                        <td class="text-right px-3 py-2 font-semibold ${m.outlier_risk === 'SAFE' ? 'text-emerald-700' : 'text-red-700'}">${m.outlier_risk}</td>
+                                    </tr>
+                                `;
+                            }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+
+            // Build category winners section
+            const winnersSection = `
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4">
+                    <div class="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border border-emerald-200 rounded p-3">
+                        <div class="text-[10px] font-bold text-emerald-700 uppercase tracking-wide mb-1">⚡ Fastest (TTFT)</div>
+                        <div class="font-semibold text-slate-800">${fastest.name}</div>
+                        <div class="text-xs text-slate-600 mt-1">${fastest.ttft_ms.toFixed(1)}ms</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-blue-50 to-blue-100/30 border border-blue-200 rounded p-3">
+                        <div class="text-[10px] font-bold text-blue-700 uppercase tracking-wide mb-1">💰 Most Economical</div>
+                        <div class="font-semibold text-slate-800">${cheapest.name}</div>
+                        <div class="text-xs text-slate-600 mt-1">$${cheapest.cost_usd.toFixed(6)}</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-indigo-50 to-indigo-100/30 border border-indigo-200 rounded p-3">
+                        <div class="text-[10px] font-bold text-indigo-700 uppercase tracking-wide mb-1">✓ Highest Accuracy</div>
+                        <div class="font-semibold text-slate-800">${mostAccurate.name}</div>
+                        <div class="text-xs text-slate-600 mt-1">${(mostAccurate.accuracy * 100).toFixed(1)}%</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-purple-50 to-purple-100/30 border border-purple-200 rounded p-3">
+                        <div class="text-[10px] font-bold text-purple-700 uppercase tracking-wide mb-1">⏱️ Lowest Total Latency</div>
+                        <div class="font-semibold text-slate-800">${lowestLatency.name}</div>
+                        <div class="text-xs text-slate-600 mt-1">${lowestLatency.total_latency_ms.toFixed(1)}ms</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-pink-50 to-pink-100/30 border border-pink-200 rounded p-3">
+                        <div class="text-[10px] font-bold text-pink-700 uppercase tracking-wide mb-1">💾 Lowest VRAM</div>
+                        <div class="font-semibold text-slate-800">${lowestVram.name}</div>
+                        <div class="text-xs text-slate-600 mt-1">${lowestVram.vram_gb.toFixed(1)}GB</div>
+                    </div>
+                    <div class="bg-gradient-to-br from-amber-50 to-amber-100/30 border border-amber-200 rounded p-3">
+                        <div class="text-[10px] font-bold text-amber-700 uppercase tracking-wide mb-1">🎯 Overall Winner</div>
+                        <div class="font-semibold text-slate-800">${winner.name}</div>
+                        <div class="text-xs text-slate-600 mt-1">Score: ${winner.score}/11</div>
+                    </div>
+                </div>
+            `;
+
+            // Build recommendation section
+            const tradeoffAnalysis = generateTradeoffAnalysis(metrics, winner, fastest, cheapest, mostAccurate);
+            
+            const recommendationSection = `
+                <div class="bg-gradient-to-r from-emerald-50 to-teal-50 border-2 border-emerald-200 rounded-lg p-4 mt-4">
+                    <div class="flex items-start gap-3">
+                        <div class="text-2xl">🎯</div>
+                        <div class="flex-1">
+                            <h3 class="font-bold text-emerald-900 mb-2">Overall Recommendation</h3>
+                            <p class="text-slate-700 text-sm mb-3">${tradeoffAnalysis.recommendation}</p>
+                            <div class="bg-white rounded p-3 border border-emerald-100 text-xs text-slate-600 space-y-1">
+                                ${tradeoffAnalysis.reasons.map(r => `<div>• ${r}</div>`).join('')}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            container.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <h3 class="font-bold text-slate-800 mb-3 uppercase tracking-wide text-sm">📊 Detailed Metrics Comparison</h3>
+                        ${metricsTable}
+                    </div>
+                    <div>
+                        <h3 class="font-bold text-slate-800 mb-3 uppercase tracking-wide text-sm">🏆 Category Winners</h3>
+                        ${winnersSection}
+                    </div>
+                    <div>
+                        ${recommendationSection}
+                    </div>
+                </div>
+            `;
+        }
+
+        function generateTradeoffAnalysis(metrics, winner, fastest, cheapest, mostAccurate) {
+            /* Generate human-readable trade-off analysis and recommendation */
+            const reasons = [];
+            
+            if (winner.name === fastest.name) {
+                reasons.push(`${winner.name} is the fastest option (${fastest.ttft_ms.toFixed(1)}ms TTFT), ideal for latency-critical applications.`);
+            }
+            
+            if (winner.name === cheapest.name) {
+                reasons.push(`${winner.name} offers the best cost efficiency at $${cheapest.cost_usd.toFixed(6)}, minimizing operational expenses.`);
+            }
+            
+            if (winner.name === mostAccurate.name) {
+                reasons.push(`${winner.name} maintains the highest accuracy at ${(mostAccurate.accuracy * 100).toFixed(1)}%, ensuring quality output.`);
+            }
+
+            if (winner.outlier_risk === 'SAFE') {
+                reasons.push(`${winner.name} is robust with low outlier sensitivity, suitable for production workloads.`);
+            }
+
+            // Cost-latency trade-off analysis
+            const costDiff = ((cheapest.cost_usd - winner.cost_usd) / winner.cost_usd * 100).toFixed(1);
+            const latencyDiff = ((fastest.ttft_ms - winner.ttft_ms) / winner.ttft_ms * 100).toFixed(1);
+            
+            if (winner.name !== cheapest.name && winner.name !== fastest.name) {
+                reasons.push(`${winner.name} provides a balanced trade-off between cost and latency performance.`);
+            }
+
+            let recommendation = `<strong>${winner.name}</strong> is recommended as the optimal choice for this comparison.`;
+            
+            if (metrics.length === 2) {
+                const other = metrics.find(m => m.index !== winner.index);
+                if (winner.cost_usd < other.cost_usd && winner.ttft_ms < other.ttft_ms) {
+                    recommendation += ` It outperforms ${other.name} in both cost (${(((other.cost_usd - winner.cost_usd) / other.cost_usd * 100).toFixed(1))}% savings) and speed (${(((other.ttft_ms - winner.ttft_ms) / other.ttft_ms * 100).toFixed(1))}% faster).`;
+                } else if (winner.cost_usd < other.cost_usd) {
+                    recommendation += ` It saves ${(((other.cost_usd - winner.cost_usd) / other.cost_usd * 100).toFixed(1))}% on costs while maintaining competitive latency.`;
+                } else if (winner.ttft_ms < other.ttft_ms) {
+                    recommendation += ` It delivers ${(((other.ttft_ms - winner.ttft_ms) / other.ttft_ms * 100).toFixed(1))}% lower latency while keeping costs reasonable.`;
+                } else if (winner.accuracy > other.accuracy) {
+                    recommendation += ` It provides ${(((winner.accuracy - other.accuracy) * 100).toFixed(1))}% better accuracy retention.`;
+                }
+            }
+
+            return {
+                recommendation,
+                reasons: reasons.length ? reasons : [`${winner.name} delivers the best overall performance across measured dimensions.`]
+            };
         }
 
         function renderCompareResultsGrid(results) {
@@ -2003,12 +2523,20 @@
 
             syncCompareSlotStateFromDom();
             const targets = compareSlotState
-                .map((slot, index) => ({
-                    slot_name: getCompareSlotLabel(index),
-                    variant_id: slot.variant,
-                    provider: slot.provider || 'Groq',
-                    model_name: slot.model || null,
-                }))
+                .map((slot, index) => {
+                    // Extract model name from variant_id if needed (format: provider::model)
+                    let modelName = slot.model || null;
+                    if (!modelName && slot.variant && slot.variant.includes('::')) {
+                        modelName = slot.variant.split('::')[1];
+                    }
+                    
+                    return {
+                        slot_name: getCompareSlotLabel(index),
+                        variant_id: slot.variant,
+                        provider: slot.provider || 'Groq',
+                        model_name: modelName,
+                    };
+                })
                 .filter(target => target.variant_id || target.model_name);
 
             if (targets.length < 2) {
@@ -2017,6 +2545,7 @@
 
             setCompareLoading(true);
             document.getElementById('compare-results').classList.add('hidden');
+            document.getElementById('compare-analysis-report').innerHTML = '';
             document.getElementById('compare-delta').classList.add('hidden');
 
             try {
@@ -2044,6 +2573,7 @@
                 const data = await response.json();
 
                 renderCompareResultsGrid(data.comparisons || []);
+                renderComparisonAnalysisReport(data.comparisons || []);
 
                 if (data.summary) {
                     document.getElementById('compare-delta').innerHTML = `
@@ -2840,19 +3370,6 @@
                 document.getElementById('canary-rollbacks').innerText = canaryMetrics.canary_rollbacks || 0;
                 document.getElementById('rollback-rate').innerText = (canaryMetrics.rollback_rate_percent || 0).toFixed(1);
 
-                // NEW: Render department chargeback breakdown
-                const chargebackData = metrics.summary.chargeback_by_department || {};
-                const chargebackDiv = document.getElementById('chargeback-breakdown');
-                if (Object.keys(chargebackData).length > 0) {
-                    chargebackDiv.innerHTML = Object.entries(chargebackData).map(([dept, data]) => `
-                        <div class="bg-white p-3 border border-slate-200 rounded flex flex-col justify-between border-l-4 border-l-emerald-500">
-                            <div class="text-[10px] font-bold text-slate-600 uppercase tracking-wide">${dept}</div>
-                            <div class="text-lg font-bold text-emerald-600 mt-1">$${data.cost_usd.toFixed(3)}</div>
-                            <div class="text-[9px] text-slate-400 mt-1">${data.requests} requests</div>
-                        </div>
-                    `).join('');
-                }
-
                 const tbody = document.getElementById('logs-body');
                 if (metrics.recent_logs && metrics.recent_logs.length > 0) {
                     const recent = metrics.recent_logs.slice(0, 5);
@@ -2895,6 +3412,9 @@
                     const latest = rowHtml(newest, true);
                     const others = recent.slice(1).map(log => rowHtml(log, false)).join('');
                     tbody.innerHTML = latest + others;
+
+                    // Update workload distribution using all available logs
+                    renderWorkloadDistribution(metrics.recent_logs);
                 }
 
                 if (metrics.infrastructure) {

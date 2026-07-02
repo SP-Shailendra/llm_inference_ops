@@ -33,6 +33,7 @@ class InferenceLog(Base):
     model_used = Column(String(255), index=True)
     provider_used = Column(String(255), index=True)
     optimization_profile = Column(String(255), index=True)
+    workload_type = Column(String(50), index=True)  # prompt classification result
     
     # Metrics
     ttft_ms = Column(Float)

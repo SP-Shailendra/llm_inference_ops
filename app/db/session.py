@@ -6,7 +6,7 @@ Maintains backward compatibility with in-memory fallback
 
 from datetime import datetime
 from typing import List, Dict, Optional
-from sqlalchemy import create_engine, event, desc
+from sqlalchemy import create_engine, event, desc, text
 from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.pool import StaticPool
 import os
@@ -66,6 +66,13 @@ def init_db():
     """Initialize database & create tables"""
     print(f"🗄️  Initializing database: {DATABASE_URL}")
     Base.metadata.create_all(bind=engine)
+    # Safe migration: add workload_type column if it doesn't exist yet
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE inference_logs ADD COLUMN workload_type VARCHAR(50)"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
     print("✅ Database initialized successfully")
 
 
@@ -101,6 +108,7 @@ class AnalyticsDB:
                 **{k: v for k, v in metrics.items() 
                    if k in ['user_id', 'department_id', 'tenant_id', 'user_role',
                            'model_used', 'provider_used', 'optimization_profile',
+                           'workload_type',
                            'ttft_ms', 'tpot_ms', 'total_latency_ms', 
                            'input_tokens', 'output_tokens', 'total_cost_usd',
                            'cache_hit', 'agent_calls', 'agent_total_cost_usd',
@@ -173,6 +181,7 @@ class AnalyticsDB:
             'model_used': log.model_used,
             'provider_used': log.provider_used,
             'optimization_profile': log.optimization_profile,
+            'workload_type': log.workload_type,
             'ttft_ms': log.ttft_ms,
             'tpot_ms': log.tpot_ms,
             'total_latency_ms': log.total_latency_ms,
@@ -199,124 +208,40 @@ class AnalyticsDB:
 # ========================================
 
 class BenchmarkDB:
-    """Persistent benchmark storage"""
+    """In-memory benchmark storage for compatibility with benchmark engine"""
     
     def __init__(self):
-        self.db = get_db_session()
+        self.jobs: Dict[str, Dict] = {}  # job_id -> job dict
     
     def create_job(self, payload: Dict) -> Dict:
         """Create benchmark job"""
-        try:
-            job = BenchmarkJob(
-                id=payload.get('job_id', str(uuid.uuid4())),
-                name=payload.get('name'),
-                description=payload.get('description'),
-                status=payload.get('status', 'pending'),
-                test_cases=payload.get('test_cases', 0),
-                model_configs=payload.get('model_configs', []),
-                optimization_profile=payload.get('optimization_profile', 'balanced'),
-                user_id=payload.get('user_id'),
-                tags=payload.get('tags', []),
-            )
-            self.db.add(job)
-            self.db.commit()
-            self.db.refresh(job)
-            return self._job_to_dict(job)
-        except Exception as e:
-            print(f"❌ Error creating benchmark job: {e}")
-            self.db.rollback()
-            return payload
+        job_id = payload.get('job_id')
+        if job_id:
+            self.jobs[job_id] = payload.copy()
+            return self.jobs[job_id]
+        return payload
     
     def update_job(self, job_id: str, patch: Dict) -> Optional[Dict]:
         """Update benchmark job"""
-        try:
-            job = self.db.query(BenchmarkJob).filter(BenchmarkJob.id == job_id).first()
-            if not job:
-                return None
-            
-            for key, value in patch.items():
-                if hasattr(job, key):
-                    setattr(job, key, value)
-            
-            job.updated_at = datetime.utcnow()
-            self.db.commit()
-            self.db.refresh(job)
-            return self._job_to_dict(job)
-        except Exception as e:
-            print(f"❌ Error updating benchmark job: {e}")
-            self.db.rollback()
+        if job_id not in self.jobs:
             return None
+        
+        self.jobs[job_id].update(patch)
+        return self.jobs[job_id]
     
     def get_job(self, job_id: str) -> Optional[Dict]:
         """Get benchmark job"""
-        try:
-            job = self.db.query(BenchmarkJob).filter(BenchmarkJob.id == job_id).first()
-            return self._job_to_dict(job) if job else None
-        except Exception as e:
-            print(f"❌ Error getting benchmark job: {e}")
-            return None
+        return self.jobs.get(job_id)
     
     def list_jobs(self) -> List[Dict]:
         """List all jobs (newest first)"""
-        try:
-            jobs = self.db.query(BenchmarkJob)\
-                .order_by(desc(BenchmarkJob.created_at))\
-                .all()
-            return [self._job_to_dict(job) for job in jobs]
-        except Exception as e:
-            print(f"❌ Error listing benchmark jobs: {e}")
-            return []
-    
-    def add_result(self, job_id: str, result: Dict) -> Dict:
-        """Add benchmark result"""
-        try:
-            db_result = BenchmarkResult(
-                id=str(uuid.uuid4()),
-                job_id=job_id,
-                case_index=result.get('case_index', 0),
-                prompt=result.get('prompt'),
-                expected_output=result.get('expected_output'),
-                model_used=result.get('model_used'),
-                provider_used=result.get('provider_used'),
-                output=result.get('output'),
-                ttft_ms=result.get('ttft_ms'),
-                tpot_ms=result.get('tpot_ms'),
-                total_latency_ms=result.get('total_latency_ms'),
-                input_tokens=result.get('input_tokens'),
-                output_tokens=result.get('output_tokens'),
-                total_cost_usd=result.get('total_cost_usd'),
-                passed=result.get('passed'),
-                accuracy_retention=result.get('accuracy_retention'),
-            )
-            self.db.add(db_result)
-            self.db.commit()
-            return result
-        except Exception as e:
-            print(f"❌ Error adding benchmark result: {e}")
-            self.db.rollback()
-            return result
-    
-    @staticmethod
-    def _job_to_dict(job: BenchmarkJob) -> Dict:
-        """Convert job to dictionary"""
-        return {
-            'job_id': job.id,
-            'created_at': job.created_at.isoformat() if job.created_at else None,
-            'updated_at': job.updated_at.isoformat() if job.updated_at else None,
-            'name': job.name,
-            'description': job.description,
-            'status': job.status,
-            'test_cases': job.test_cases,
-            'passed_cases': job.passed_cases,
-            'failed_cases': job.failed_cases,
-            'model_configs': job.model_configs,
-            'optimization_profile': job.optimization_profile,
-            'avg_ttft_ms': job.avg_ttft_ms,
-            'avg_tpot_ms': job.avg_tpot_ms,
-            'total_cost_usd': job.total_cost_usd,
-            'user_id': job.user_id,
-            'tags': job.tags,
-        }
+        # Sort by created_at timestamp, most recent first
+        sorted_jobs = sorted(
+            self.jobs.values(),
+            key=lambda j: j.get('updated_at', j.get('created_at', '')) or '',
+            reverse=True
+        )
+        return sorted_jobs
 
 
 # ========================================
@@ -324,6 +249,4 @@ class BenchmarkDB:
 # ========================================
 
 analytics_db = AnalyticsDB()
-benchmark_db = BenchmarkDB()
-
 benchmark_db = BenchmarkDB()

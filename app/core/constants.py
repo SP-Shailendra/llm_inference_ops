@@ -68,3 +68,25 @@ class Limits:
 
 class Analytics:
     MAX_LOGS = 100
+
+
+class WorkloadType:
+    CHAT             = "chat"
+    CODING           = "coding"
+    CODE_REVIEW      = "code_review"
+    DEBUGGING        = "debugging"
+    SQL              = "sql"
+    JSON_GENERATION  = "json_generation"
+    TRANSLATION      = "translation"
+    SUMMARIZATION    = "summarization"
+    RESEARCH         = "research"
+    PLANNING         = "planning"
+    RAG              = "rag"
+    AGENT_WORKFLOW   = "agent_workflow"
+    CREATIVE_WRITING = "creative_writing"
+    SENTIMENT        = "sentiment_analysis"
+    CLASSIFICATION   = "classification"
+    EXTRACTION       = "extraction"
+    QUESTION_ANSWER  = "question_answer"
+    ADVISORY         = "advisory"
+    UNKNOWN          = "unknown"

@@ -13,6 +13,7 @@ from app.core.routing_engine import model_router
 from app.core.cache_engine import semantic_cache
 from app.core.llm_client import llm_engine
 from app.core.platform_state import platform_state
+from app.core.prompt_classifier import prompt_classifier
 
 # --- BATCH 2 FINOPS IMPORTS ---
 from app.core.budget_engine import budget_engine, AgentBudgetExceededException
@@ -143,9 +144,29 @@ class RuntimeController:
                 f"Duration: {profile.agent.max_duration_seconds}s)"
             )
 
-        # Override request parameters based on strict policy
-        request.temperature = profile.runtime.temperature
-        request.max_tokens = profile.runtime.max_tokens
+        # ── Prompt Intelligence: classify workload & derive optimal parameters ──
+        classification = prompt_classifier.classify(request.prompt)
+        trace_logs.append(
+            f"🧠 Prompt Intelligence: Workload='{classification.workload_type}' "
+            f"Complexity='{classification.complexity}' "
+            f"Confidence={classification.confidence}% "
+            f"— {classification.classification_reason}"
+        )
+        if classification.safety_risk == "high":
+            trace_logs.append("🚨 Safety: High-risk content detected in prompt.")
+
+        # Override request parameters: profile sets governance ceiling,
+        # prompt classifier fills in the optimal value within that range.
+        # Profile temperature is the governance cap — classifier picks within it.
+        profile_temp = profile.runtime.temperature
+        profile_max_tokens = profile.runtime.max_tokens
+        request.temperature = min(classification.recommended_temperature, profile_temp * 1.5)
+        request.max_tokens = min(classification.recommended_max_tokens, profile_max_tokens * 2)
+        trace_logs.append(
+            f"⚙️ Parameters: temperature={request.temperature:.2f} "
+            f"max_tokens={request.max_tokens} "
+            f"(tuned for '{classification.workload_type}' workload)"
+        )
 
         # --- BATCH 2: POLICY & BUDGET GUARDRAILS ---
         # Estimate cost (rough heuristic) to check against budget before spending
@@ -203,8 +224,25 @@ class RuntimeController:
         target_provider = canary_route["provider"]
         target_model = canary_route["model"]
 
+        # Build routing decision explanation using prompt classification
+        routing_reason = []
+        if requested_model:
+            routing_reason.append(f"explicit model override by caller")
+        elif profile_name == "cost_saver":
+            routing_reason.append(f"Cost Saver profile enforces cheapest model")
+        elif profile_name == "performance":
+            routing_reason.append(f"Performance profile enforces premium model")
+        else:
+            wl = classification.workload_type
+            cx = classification.complexity
+            if cx == "high" or wl in ("research", "planning", "coding", "debugging", "agent_workflow"):
+                routing_reason.append(f"'{wl}' workload with '{cx}' complexity → premium tier selected")
+            else:
+                routing_reason.append(f"'{wl}' workload with '{cx}' complexity → balanced tier sufficient")
+
         trace_logs.append(
-            f"🔀 Routing: Provider '{target_provider}' model '{target_model}'."
+            f"🔀 Routing: Provider '{target_provider}' · Model '{target_model}' "
+            f"— {'; '.join(routing_reason)}"
         )
 
         # 3. Cache Interceptor
@@ -221,7 +259,11 @@ class RuntimeController:
                 
                 # Attach trace and log
                 cached_response.trace = trace_logs
-                analytics_db.add_log(cached_response.metrics.model_dump())
+                cached_hit_telemetry = cached_response.metrics.model_dump()
+                cached_hit_telemetry["workload_type"] = classification.workload_type
+                cached_hit_telemetry["department_id"] = request.department_id
+                cached_hit_telemetry["tenant_id"] = request.tenant_id
+                analytics_db.add_log(cached_hit_telemetry)
                 return cached_response
             else:
                 trace_logs.append("🔍 Cache: Miss. Proceeding to inference layer.")
@@ -372,8 +414,10 @@ class RuntimeController:
         if profile.features.enable_cache:
             await semantic_cache.store_cache(request.prompt, target_model, response)
 
-        # 8. Store Telemetry
-        analytics_db.add_log(response.metrics.model_dump())
+        # 8. Store Telemetry (include workload_type from prompt classification)
+        telemetry = response.metrics.model_dump()
+        telemetry["workload_type"] = classification.workload_type
+        analytics_db.add_log(telemetry)
         
         # NEW: Finalize agent session
         if agent_session:

@@ -8,6 +8,8 @@ from app.schemas.request import InferenceRequest
 from app.core.model_registry import model_registry
 from app.core.llm_client import llm_engine
 from app.core.platform_state import platform_state
+from app.core.runtime_controller import runtime_controller
+from app.core.prompt_classifier import prompt_classifier
 from app.db.session import analytics_db
 
 router = APIRouter()
@@ -158,22 +160,17 @@ async def _run_compare_target(prompt: str, target: CompareTarget, optimization_p
     )
     model_name = _resolve_model_for_provider(requested_model, provider)
 
+    # Route through RuntimeController so prompt classifier, parameter tuning,
+    # policy enforcement, caching, and budget checks all apply — same as gateway.
     req = InferenceRequest(
         prompt=prompt,
         optimization_profile=optimization_profile,
         provider=provider,
         model_name=model_name,
     )
+    response = await runtime_controller.execute(req)
 
-    async def _run_with_infra_tracking():
-        platform_state.add_active_model(model_name)
-        try:
-            return await llm_engine.generate(req, model_name, provider_name=provider)
-        finally:
-            platform_state.remove_active_model(model_name)
-
-    response = await _run_with_infra_tracking()
-
+    # Apply variant-level cost multiplier on top of live cost
     multiplier = variant_obj.cost_multiplier if variant_obj else 1.0
     response.metrics.total_cost_usd = round(response.metrics.total_cost_usd * multiplier, 6)
 
@@ -181,8 +178,6 @@ async def _run_compare_target(prompt: str, target: CompareTarget, optimization_p
     if "int4" in precision or "awq" in precision:
         response.metrics.tpot_ms = round(response.metrics.tpot_ms * 0.65, 2)
         response.metrics.total_latency_ms = round(response.metrics.total_latency_ms * 0.65, 2)
-
-    analytics_db.add_log(response.metrics.model_dump())
 
     metadata = (
         _build_variant_metadata(variant_obj)
@@ -200,6 +195,32 @@ async def _run_compare_target(prompt: str, target: CompareTarget, optimization_p
         "output": response.content,
         "metrics": response.metrics.model_dump(),
     }
+
+@router.post("/classify", summary="Classify a prompt — workload type and recommended parameters")
+async def classify_prompt(body: dict):
+    """
+    Lightweight prompt intelligence endpoint.
+    Returns workload type, complexity, recommended temperature and max_tokens.
+    Zero LLM cost — purely rule-based.
+    """
+    prompt = body.get("prompt", "").strip()
+    if not prompt:
+        return {"error": "prompt is required"}
+    c = prompt_classifier.classify(prompt)
+    return {
+        "workload_type": c.workload_type,
+        "complexity": c.complexity,
+        "reasoning_level": c.reasoning_level,
+        "safety_risk": c.safety_risk,
+        "estimated_input_tokens": c.estimated_input_tokens,
+        "recommended_temperature": c.recommended_temperature,
+        "recommended_max_tokens": c.recommended_max_tokens,
+        "requires_large_context": c.requires_large_context,
+        "is_advisory_query": c.is_advisory_query,
+        "confidence": c.confidence,
+        "classification_reason": c.classification_reason,
+    }
+
 
 @router.get("/variants", summary="List all quantized model variants")
 async def get_variants():

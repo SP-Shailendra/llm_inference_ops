@@ -1,0 +1,269 @@
+================================================================================
+  COMPUNNEL AIOPS CONTROL — TEST PROMPTS
+  One file covering every testable function across all 4 pages.
+  Each section lists WHERE to paste the prompt and what it tests.
+================================================================================
+
+
+════════════════════════════════════════════════════════════════════════════════
+  PAGE 1 — OVERVIEW  |  Model Comparison Panel
+  How to use: Paste into the "Prompt" field in the Model Comparison section.
+              Select 2 slots (e.g. Groq/llama-3.1-8b-instant vs Groq/llama-3.3-70b-versatile)
+              and click Run Comparison.
+  What to observe: TTFT, Cost, Accuracy winners, Overall Score, Recommendation text.
+════════════════════════════════════════════════════════════════════════════════
+
+[P1-1] Workload: CODING — tests structured output & determinism difference between 8B vs 70B
+-----------------------------------------------------------------------
+Write a Python class called RateLimiter that uses a sliding window algorithm
+to limit API calls to N requests per second. Include __init__, allow(), and
+reset() methods with proper docstrings and type hints.
+
+[P1-2] Workload: RESEARCH — tests reasoning depth, where 70B should clearly outperform 8B
+-----------------------------------------------------------------------
+Explain in detail how Flash Attention v2 reduces the memory complexity of
+the self-attention mechanism from O(n²) to O(n). Cover the tiling strategy,
+the online softmax trick, and how it changes VRAM requirements at inference
+time for a 70B parameter model. Keep it technically precise.
+
+[P1-3] Workload: SUMMARIZATION — tests cost efficiency, 8B models should be competitive
+-----------------------------------------------------------------------
+Summarize the key architectural differences between GPT-style decoder-only
+transformers and BERT-style encoder-only transformers. Cover training
+objectives, inference patterns, and ideal use cases. Keep it under 120 words.
+
+[P1-4] Workload: SQL — tests structured/deterministic output, cost should be very low
+-----------------------------------------------------------------------
+Write a SQL query that finds the top 10 products by revenue for the last 30
+days from a sales table with columns: product_id, sale_date, quantity, and
+unit_price. Include a running total column using a window function.
+
+[P1-5] Workload: CREATIVE WRITING — tests where larger models shine in vocabulary richness
+-----------------------------------------------------------------------
+Write a 100-word short story set inside a data center at 3am. The protagonist
+is a load balancer who becomes self-aware when traffic suddenly drops to zero.
+Make it literary and atmospheric, not technical.
+
+
+════════════════════════════════════════════════════════════════════════════════
+  PAGE 3 — POLICIES  |  Routing Gateway
+  How to use: Go to Policies page → "Routing Gateway" section.
+              Select a Profile (Balanced / Performance / Cost Saver) and Provider,
+              paste the prompt, and click Send.
+  What to observe: The Execution Pipeline Trace — check the 🧠 Prompt Intelligence
+              stage (workload type, complexity), ⚙️ Parameters stage (temperature,
+              max_tokens), and 🔀 Routing stage (which model was selected and why).
+════════════════════════════════════════════════════════════════════════════════
+
+[P3-1] Profile: BALANCED — should auto-route to 8B (low complexity, simple task)
+-----------------------------------------------------------------------
+What is the difference between supervised learning and unsupervised learning?
+Give me a one-paragraph answer.
+
+  Expected trace:
+  🧠 Workload='question_answer', Complexity='low'
+  🔀 Routes to llama-3.1-8b-instant (balanced tier sufficient)
+
+-----------------------------------------------------------------------
+
+[P3-2] Profile: BALANCED — should auto-route to 70B (high complexity, research)
+-----------------------------------------------------------------------
+Analyze the architectural trade-offs between microservices and monolithic
+systems for a high-throughput LLM inference platform. Include failure modes,
+horizontal scaling strategies, latency implications, and a recommended
+migration path for an enterprise moving from monolith to microservices.
+
+  Expected trace:
+  🧠 Workload='research', Complexity='high'
+  🔀 Routes to llama-3.3-70b-versatile (premium tier)
+
+-----------------------------------------------------------------------
+
+[P3-3] Profile: COST SAVER — verifies profile always forces cheapest model regardless of complexity
+-----------------------------------------------------------------------
+Design a complete distributed caching architecture for a system handling
+5 million LLM inference requests per day. Cover cache invalidation strategies,
+Redis Cluster vs Memcached trade-offs, semantic similarity thresholds, TTL
+policies, and failure recovery patterns.
+
+  Expected trace:
+  🛡️ Policy 'COST_SAVER' applied
+  🔀 Routes to llama-3.1-8b-instant (Cost Saver profile enforces cheapest model)
+
+-----------------------------------------------------------------------
+
+[P3-4] Profile: PERFORMANCE — verifies profile always forces premium model regardless of simplicity
+-----------------------------------------------------------------------
+Say hello and tell me today's date.
+
+  Expected trace:
+  🛡️ Policy 'PERFORMANCE' applied
+  🔀 Routes to llama-3.3-70b-versatile (Performance profile enforces premium model)
+
+-----------------------------------------------------------------------
+
+[P3-5] Profile: BALANCED — tests cache behavior (run this prompt twice in a row)
+-----------------------------------------------------------------------
+Explain what TTFT means in LLM inference and why it matters for chat applications.
+
+  First run:  🔍 Cache: Miss. Proceeding to inference layer.
+  Second run: ⚡ Cache: Semantic hit found. Bypassing LLM generation.
+  Cost on second run should be $0.000000
+
+-----------------------------------------------------------------------
+
+
+════════════════════════════════════════════════════════════════════════════════
+  PAGE 4 — BENCHMARKS  |  Benchmark Runner
+  How to use: Go to Benchmarks page → select Provider, Model, Profile,
+              check one or more Test Suites, set Sample Size, click Run Benchmark.
+  What to observe: Per-case TTFT, Pass/Fail rate, Total Cost, Avg Latency.
+════════════════════════════════════════════════════════════════════════════════
+
+[P4-1] Smoke Test — quick sanity check that the provider is alive and responding
+-----------------------------------------------------------------------
+Provider : Groq
+Model    : llama-3.1-8b-instant
+Profile  : balanced
+Suites   : smoke
+Samples  : 3
+
+  Goal: All 3 cases should PASS. TTFT should be under 2000ms.
+  Use this first whenever you restart the server or change API keys.
+
+-----------------------------------------------------------------------
+
+[P4-2] MMLU-Lite — reasoning quality test on 8B vs 70B
+-----------------------------------------------------------------------
+Run 1 —
+Provider : Groq
+Model    : llama-3.1-8b-instant
+Profile  : balanced
+Suites   : mmlu-lite
+Samples  : 5
+
+Run 2 —
+Provider : Groq
+Model    : llama-3.3-70b-versatile
+Profile  : performance
+Suites   : mmlu-lite
+Samples  : 5
+
+  Goal: Compare pass rates. 70B should pass more reasoning questions.
+  Compare the two job results side-by-side in Benchmark Job History.
+
+-----------------------------------------------------------------------
+
+[P4-3] HellaSwag-Lite — common-sense reasoning test
+-----------------------------------------------------------------------
+Provider : Groq
+Model    : llama-3.3-70b-versatile
+Profile  : performance
+Suites   : hellaswag-lite
+Samples  : 5
+
+  Goal: All cases should PASS. Low TPOT expected (short completions).
+
+-----------------------------------------------------------------------
+
+[P4-4] Full Suite — combined stress test across all three suites
+-----------------------------------------------------------------------
+Provider : Groq
+Model    : llama-3.3-70b-versatile
+Profile  : balanced
+Suites   : smoke + mmlu-lite + hellaswag-lite  (check all three)
+Samples  : 3 each
+
+  Goal: 9 total cases. Verify total cost is proportional to sample size.
+  Check that "Failed Cases" stays at 0.
+
+-----------------------------------------------------------------------
+
+[P4-5] Cost Saver profile — validate that cheap model still passes smoke tests
+-----------------------------------------------------------------------
+Provider : Groq
+Model    : llama-3.1-8b-instant
+Profile  : cost_saver
+Suites   : smoke
+Samples  : 5
+
+  Goal: Confirm cost_saver profile produces the lowest total cost in history.
+  TTFT may be slightly higher than performance profile — this is expected.
+
+-----------------------------------------------------------------------
+
+
+════════════════════════════════════════════════════════════════════════════════
+  ADVISOR  |  POST /api/v1/advisor/recommend
+  How to use: Open http://localhost:8000/docs → find /advisor/recommend →
+              click "Try it out" → paste the scenario into the request body.
+  What to observe: detected_workload, ranked model recommendations,
+              estimated_cost_per_1k_requests, deployment_advice, warnings.
+════════════════════════════════════════════════════════════════════════════════
+
+[A-1] Scenario: Customer support chatbot (cost-sensitive, high volume)
+-----------------------------------------------------------------------
+{
+  "scenario": "I want to build a customer support chatbot for an e-commerce platform. Expected volume is 50,000 requests per day. Responses must be fast (under 1 second TTFT). Budget is tight — I want to minimize cost per request.",
+  "constraints": "prefer low cost, low latency, no INT4"
+}
+
+-----------------------------------------------------------------------
+
+[A-2] Scenario: Legal document analysis (accuracy-critical, low volume)
+-----------------------------------------------------------------------
+{
+  "scenario": "We need to analyze and summarize legal contracts, extracting clauses, obligations, and risk factors. Volume is low — about 200 documents per day. Accuracy is critical and hallucinations are unacceptable.",
+  "constraints": "accuracy over cost, avoid quantized models"
+}
+
+-----------------------------------------------------------------------
+
+[A-3] Scenario: Automated code review pipeline
+-----------------------------------------------------------------------
+{
+  "scenario": "Building a CI/CD pipeline that automatically reviews pull requests, detects bugs, suggests refactors, and checks security vulnerabilities. Runs on every commit — about 1000 reviews per day.",
+  "constraints": "strong code understanding required, deterministic output preferred"
+}
+
+-----------------------------------------------------------------------
+
+[A-4] Scenario: Real-time multilingual translation service
+-----------------------------------------------------------------------
+{
+  "scenario": "We are building a real-time translation microservice supporting 20 languages for a global SaaS product. Requests come in bursts — up to 500 concurrent users during peak hours. Latency under 800ms is required.",
+  "constraints": "multilingual support is must, self-host not possible"
+}
+
+-----------------------------------------------------------------------
+
+[A-5] Scenario: Autonomous research agent with tool use
+-----------------------------------------------------------------------
+{
+  "scenario": "We are building an agentic AI system that autonomously browses documentation, calls APIs, runs code, and produces a structured research report. Each agent session may make 10-30 LLM sub-calls. Cost per session must stay under $0.50.",
+  "constraints": "must support function calling, reliability over speed"
+}
+
+-----------------------------------------------------------------------
+
+
+================================================================================
+  QUICK REFERENCE — WORKLOAD TYPES THIS FILE COVERS
+================================================================================
+
+  coding           → P1-1
+  research         → P1-2, P3-2, A-5
+  summarization    → P1-3
+  sql              → P1-4
+  creative_writing → P1-5
+  question_answer  → P3-1
+  cost_saver route → P3-3
+  performance route→ P3-4
+  cache hit/miss   → P3-5
+  smoke benchmark  → P4-1, P4-5
+  mmlu reasoning   → P4-2
+  hellaswag        → P4-3
+  full suite       → P4-4
+  advisory         → A-1 through A-5
+
+================================================================================
