@@ -55,6 +55,42 @@ In enterprise AI deployment, teams face several recurring challenges:
 
 ## 2. Architecture & Core Concepts
 
+### Platform Architecture
+
+```mermaid
+flowchart LR
+    Clients[Applications and API clients] --> App[FastAPI application]
+    UI[Dashboard and experiments UI] --> App
+    App --> API[Versioned API endpoints]
+
+    API --> Gateway[Gateway and experiments]
+    API --> Insights[Dashboard and advisor]
+    API --> Benchmarks[Benchmark endpoints]
+    API --> Governance[Governance endpoints]
+
+    Gateway --> Runtime[RuntimeController]
+    Runtime --> Config[Profiles and governance]
+    Runtime --> Classifier[Prompt classifier]
+    Runtime --> Controls[Policy and budget engines]
+    Runtime --> Routing[Routing engine and model registry]
+    Runtime --> Cache[Response cache]
+    Runtime --> LLM[Unified LLM client]
+    LLM --> Providers[Cloud and local model providers]
+    Providers --> LLM
+
+    Runtime --> Telemetry[Telemetry and platform state]
+    Telemetry --> Analytics[(Analytics store)]
+    Insights --> Analytics
+    Governance --> ProfileStore[(Governance store)]
+    Benchmarks --> BenchmarkEngine[Benchmark engine]
+    BenchmarkEngine --> BenchmarkStore[(Benchmark job store)]
+
+    Runtime --> API
+    Insights --> API
+    Benchmarks --> API
+    Governance --> API
+```
+
 ### Request Lifecycle
 
 Every inference request travels through a 10-stage pipeline:
